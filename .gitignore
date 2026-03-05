@@ -1,4 +1,56 @@
+# IDE
+
 .metadata/
+.vscode/
+.idea/
+
+# Logs
+
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+
 node_modules/
+jspm_packages/
+
+# Build folders
+
 target/
+dist/
+build/
+
+# Coverage
+
+coverage
+.nyc_output
+
+# Cache
+
+.cache
+.parcel-cache
+.temp
+
+# Environment variables
+
 .env
+.env.*
+
+# TypeScript
+
+*.tsbuildinfo
+
+# OS files
+
+.DS_Store
+Thumbs.db
