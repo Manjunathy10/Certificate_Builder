@@ -1,6 +1,6 @@
 #development version of configurations
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 #  database connections
 spring:

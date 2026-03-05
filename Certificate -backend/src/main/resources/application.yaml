@@ -2,7 +2,7 @@ spring:
   application:
     name: auth-app-backend
   profiles:
-    active: dev
+    active: prod
 
 
 server:
