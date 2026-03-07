@@ -101,7 +101,7 @@ function Login() {
               transition={{ delay: 0.4 }}
               className="text-center text-muted-foreground mt-2"
             >
-              Login to access your authentication app
+              Login to access your certification Builder app
             </motion.p>
 
             {/* error section */}

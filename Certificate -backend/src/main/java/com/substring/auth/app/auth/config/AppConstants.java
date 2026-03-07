@@ -15,6 +15,10 @@ public class AppConstants {
     };
 
     public static final String[] AUTH_GUEST_URLS= {
+    		
+    		"/api/v1/profiles/**",
+            "/api/v1/addresses/**"
+
 
     };
 
