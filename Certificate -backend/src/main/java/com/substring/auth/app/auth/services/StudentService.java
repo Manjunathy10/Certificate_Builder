@@ -1,5 +1,6 @@
 package com.substring.auth.app.auth.services;
 
+import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,14 +28,28 @@ public interface StudentService {
     // delete student
     void deleteStudent(UUID studentId);
 
-    // get all students of institute
-    List<StudentDto> getStudents();
+    // pagination-enabled get students
+    List<StudentDto> getStudents(int page, int size);
 
-    // search student by name
+    // search student by name (legacy)
     List<StudentDto> searchStudentsByName(String name);
 
-    // CSV bulk upload
-    void uploadStudentsFromCsv(MultipartFile file);
+    // pagination-enabled search
+    List<StudentDto> searchStudentsByName(String name, int page, int size);
+
+//    // CSV bulk upload
+//    void uploadStudentsFromCsv(MultipartFile file);
+    
+    
+    byte[] exportStudentsToPdf();
+
+    ByteArrayInputStream exportStudentsToExcel();
+
+	void processCSV(MultipartFile file);
+
+	void uploadStudents(MultipartFile file);
+    
+    
 
 
 }

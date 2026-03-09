@@ -1,5 +1,6 @@
 package com.substring.auth.app.auth.repositories;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,6 +15,11 @@ public interface ProfileRepository extends JpaRepository<Profile, UUID>{
 		//Returns Optional<Profile> because profile may or may not exist.
 		Optional<Profile> findByUser(User user);
 
+		
+		
+		  List<Profile> findByIdentificationNumberIn(List<String> trainerNumbers);
+		
+		
 //		This method checks whether a Profile already exists for a given User
 //		 When creating a profile we can first check if profile already exists
 //	     to avoid duplicate profiles for the same user.

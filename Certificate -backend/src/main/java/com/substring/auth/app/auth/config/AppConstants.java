@@ -11,13 +11,14 @@ public class AppConstants {
     };
 
     public static final String[] AUTH_ADMIN_URLS= {
-            "/api/v1/users/**"
+//            "/api/v1/users/**"
     };
 
     public static final String[] AUTH_GUEST_URLS= {
     		
     		"/api/v1/profiles/**",
-            "/api/v1/addresses/**"
+            "/api/v1/addresses/**",
+    		 "/api/v1/users/**"
 
 
     };
