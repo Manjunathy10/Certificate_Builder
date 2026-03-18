@@ -9,12 +9,13 @@ import Signup from "./pages/Signup.tsx";
 import RootLayout from "./pages/RootLayout.tsx";
 import Userlayout from "./pages/users/Userlayout.tsx";
 import Userhome from "./pages/users/Userhome.tsx";
-import Userprofile from "./pages/users/Userprofile.tsx";
+
 import OAuthSuccess from "./pages/OAuthSuccess.tsx";
 import AddStudent from "./pages/AddStudent.tsx";
 import ImportStudent from "./pages/ImportStudent.tsx";
 import StudentList from "./pages/StudentList";
 import EditStudent from "./pages/EditStudent";
+import ProfileOnboarding from "./pages/ProfileOnboarding.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
@@ -31,7 +32,7 @@ createRoot(document.getElementById("root")!).render(
 
       <Route path="/dashboard" element={<Userlayout />}>
         <Route index element={<Userhome />} />
-        <Route path="profile" element={<Userprofile />} />
+        <Route path="profile" element={<ProfileOnboarding />} />
 
          {/* Students */}
   <Route path="students">

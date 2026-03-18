@@ -1,56 +1,96 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { motion } from "framer-motion";
-import useAuth from "@/auth/store";
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
-import { Upload, ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from "lucide-react";
-import Cropper from "react-easy-crop";
-import type { Area, Point } from "react-easy-crop";
-import "react-easy-crop/react-easy-crop.css";
+import useAuthStore from "@/auth/store";
+import apiClient from "@/config/ApiClient";
+import toast from "react-hot-toast";
+import { Upload, ChevronRight, ChevronLeft } from "lucide-react";
 
-interface ProfileFormData {
+interface FormData {
+  // Step 1: Personal Info
   fullName: string;
   email: string;
-  mobile: string;
+  mobileNumber: string;
   dateOfBirth: string;
+
+  // Step 2: Address
   address: string;
   deliveryAddress: string;
   state: string;
   district: string;
   city: string;
   pincode: string;
+
+  // Step 3: Work Info
   identificationNumber: string;
   centerName: string;
   deliveryPartner: string;
   startDate: string;
   endDate: string;
+
+  // Step 4: Photo
   profilePhoto: File | null;
+  photoUrl: string;
+
+  // Optional delivery location details for backend payload fallback logic
+  deliveryCity: string;
+  deliveryDistrict: string;
+  deliveryState: string;
+  deliveryPincode: string;
 }
 
-function Userprofile() {
-  const navigate = useNavigate();
-  const user = useAuth((state) => state.user);
-  const [profileComplete, setProfileComplete] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+interface ExistingProfile {
+  id?: string;
+  fullName?: string;
+  mobileNumber?: string;
+  identificationNumber?: string;
+  centerName?: string;
+  deliveryPartner?: string;
+  dateOfBirth?: string;
+  startDate?: string;
+  endDate?: string;
+  photoUrl?: string;
+}
+
+interface ExistingAddress {
+  addressLine?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  pincode?: string;
+  type?: string;
+}
+
+export default function ProfileOnboarding() {
+  type ValidationField =
+    | "fullName"
+    | "mobileNumber"
+    | "identificationNumber"
+    | "dateOfBirth"
+    | "pincode";
+
+  const user = useAuthStore((state) => state.user);
+  const authUser = user as (typeof user & {
+    profile?: ExistingProfile;
+    addresses?: ExistingAddress[];
+  }) | null;
+
+  const profileFromStore = authUser?.profile ?? null;
+  const addresses = authUser?.addresses || [];
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  const [photoPreview, setPhotoPreview] = useState<string>("");
-  
-  // Crop state management
-  const [isCropping, setIsCropping] = useState(false);
-  const [imageToCrop, setImageToCrop] = useState<string>("");
-  const [croppedArea, setCroppedArea] = useState<Area | null>(null);
-  const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const [errorMessage, setErrorMessage] = useState("");
-  
-  const [formData, setFormData] = useState<ProfileFormData>({
+  const [errors, setErrors] = useState<Partial<Record<ValidationField, string>>>({});
+  const [localProfile, setLocalProfile] = useState<ExistingProfile | null>(
+    profileFromStore
+  );
+  const [localAddresses, setLocalAddresses] = useState<ExistingAddress[]>(
+    addresses
+  );
+  const [formData, setFormData] = useState<FormData>({
     fullName: "",
-    email: user?.email || "",
-    mobile: "",
+    email: "",
+    mobileNumber: "",
     dateOfBirth: "",
     address: "",
     deliveryAddress: "",
@@ -64,177 +104,172 @@ function Userprofile() {
     startDate: "",
     endDate: "",
     profilePhoto: null,
+    photoUrl: "",
+    deliveryCity: "",
+    deliveryDistrict: "",
+    deliveryState: "",
+    deliveryPincode: "",
   });
 
-  // Image validation function
-  const validateImage = (file: File): { valid: boolean; error?: string } => {
-    const validTypes = ["image/jpeg", "image/png"];
-    const maxSize = 5 * 1024 * 1024; // 5MB
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
-    if (!validTypes.includes(file.type)) {
-      return { valid: false, error: "Only JPG and PNG images are allowed" };
-    }
+  const existingProfile = localProfile ?? profileFromStore;
+  const existingAddresses = addresses.length > 0 ? addresses : localAddresses;
+  const hasProfile = Boolean(existingProfile);
 
-    if (file.size > maxSize) {
-      return { valid: false, error: "Image size must be less than 5MB" };
-    }
-
-    return { valid: true };
-  };
-
-  // Create cropped image blob from canvas
-  const createImage = (url: string): Promise<HTMLImageElement> =>
-    new Promise((resolve, reject) => {
-      const image = new Image();
-      image.addEventListener("load", () => resolve(image));
-      image.addEventListener("error", (err) => reject(err));
-      image.setAttribute("crossOrigin", "anonymous");
-      image.src = url;
-    });
-
-  const getCroppedImg = async (
-    imageSrc: string,
-    pixelCrop: Area
-  ): Promise<string> => {
-    try {
-      const image = await createImage(imageSrc);
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      if (!ctx) throw new Error("No 2d context");
-
-      // Ensure width and height are integers
-      const width = Math.round(pixelCrop.width);
-      const height = Math.round(pixelCrop.height);
-      const x = Math.round(pixelCrop.x);
-      const y = Math.round(pixelCrop.y);
-
-      canvas.width = width;
-      canvas.height = height;
-
-      // Set white background for transparency
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw the cropped portion of the image
-      ctx.drawImage(
-        image,
-        x,
-        y,
-        width,
-        height,
-        0,
-        0,
-        width,
-        height
-      );
-
-      return canvas.toDataURL("image/jpeg", 0.9);
-    } catch (error) {
-      console.error("Error cropping image:", error);
-      throw new Error("Failed to crop image");
-    }
-  };
-
-  // Check if profile is complete
   useEffect(() => {
-    const savedProfile = localStorage.getItem("userProfile");
-    if (savedProfile) {
-      const profile = JSON.parse(savedProfile);
-      setProfileComplete(true);
-      setFormData(profile);
-    }
-  }, []);
+    console.log("ADDRESSES:", addresses);
+  }, [addresses]);
 
   const steps = [
-    { title: "Personal Info", icon: "👤" },
-    { title: "Address", icon: "📍" },
-    { title: "Work Info", icon: "💼" },
-    { title: "Upload Photo", icon: "📷" },
+    "Personal Info",
+    "Address",
+    "Work Info",
+    "Upload Photo",
   ];
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+
+    if (name in errors) {
+      setErrors((prev) => ({
+        ...prev,
+        [name]: undefined,
+      }));
+    }
   };
+
+  const inputErrorClass = (field: ValidationField) =>
+    errors[field]
+      ? "border-red-500 focus:ring-red-500 dark:border-red-500"
+      : "";
+
+  const validate = () => {
+    const newErrors: Partial<Record<ValidationField, string>> = {};
+    const fullName = formData.fullName.trim();
+    const mobileNumber = formData.mobileNumber.trim();
+    const identificationNumber = formData.identificationNumber.trim();
+    const dateOfBirth = formData.dateOfBirth.trim();
+    const pincode = formData.pincode.trim();
+
+    if (!fullName) {
+      newErrors.fullName = "Full Name is required";
+    }
+
+    if (!mobileNumber) {
+      newErrors.mobileNumber = "Mobile Number is required";
+    } else if (!/^[0-9]{10}$/.test(mobileNumber)) {
+      newErrors.mobileNumber = "Enter valid 10-digit number";
+    }
+
+    if (!identificationNumber) {
+      newErrors.identificationNumber = "ID required";
+    }
+
+    if (!dateOfBirth) {
+      newErrors.dateOfBirth = "Date of Birth required";
+    }
+
+    if (pincode && !/^[0-9]{6}$/.test(pincode)) {
+      newErrors.pincode = "Invalid pincode";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const formatDateForInput = (value?: string) => {
+    if (!value) return "";
+    return value.slice(0, 10);
+  };
+
+  useEffect(() => {
+    if (!isEditMode || !existingProfile) {
+      return;
+    }
+
+    const permanent =
+      existingAddresses.find((addr) => addr.type === "PERMANENT") ?? {};
+    const delivery =
+      existingAddresses.find((addr) => addr.type === "DELIVERY") ?? {};
+
+    setFormData((prev) => ({
+      ...prev,
+      fullName: existingProfile.fullName || "",
+      mobileNumber: existingProfile.mobileNumber || "",
+      identificationNumber: existingProfile.identificationNumber || "",
+      centerName: existingProfile.centerName || "",
+      deliveryPartner: existingProfile.deliveryPartner || "",
+      dateOfBirth: formatDateForInput(existingProfile.dateOfBirth),
+      startDate: formatDateForInput(existingProfile.startDate),
+      endDate: formatDateForInput(existingProfile.endDate),
+      photoUrl: existingProfile.photoUrl || "",
+      address: permanent.addressLine || "",
+      city: permanent.city || "",
+      district: permanent.district || "",
+      state: permanent.state || "",
+      pincode: permanent.pincode || "",
+      deliveryAddress: delivery.addressLine || "",
+      deliveryCity: delivery.city || "",
+      deliveryDistrict: delivery.district || "",
+      deliveryState: delivery.state || "",
+      deliveryPincode: delivery.pincode || "",
+    }));
+
+    setPhotoPreview(existingProfile.photoUrl || null);
+    setCurrentStep(1);
+  }, [isEditMode, existingProfile, existingAddresses]);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const validation = validateImage(file);
-      
-      if (!validation.valid) {
-        setErrorMessage(validation.error || "Invalid image");
-        return;
-      }
+      setFormData((prev) => ({
+        ...prev,
+        profilePhoto: file,
+      }));
 
-      setErrorMessage("");
+      // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImageToCrop(reader.result as string);
-        setIsCropping(true);
-        setCrop({ x: 0, y: 0 });
-        setZoom(1);
+        const result = reader.result as string;
+        setPhotoPreview(result);
+        setFormData((prev) => ({
+          ...prev,
+          photoUrl: result,
+        }));
       };
       reader.readAsDataURL(file);
-    }
-  };
-
-  const handleCancelCrop = () => {
-    setIsCropping(false);
-    setImageToCrop("");
-    setCrop({ x: 0, y: 0 });
-    setZoom(1);
-    setErrorMessage("");
-  };
-
-  const handleApplyCrop = async () => {
-    if (!croppedArea) {
-      setErrorMessage("Please adjust the crop area before applying");
-      return;
-    }
-
-    try {
-      setErrorMessage("");
-      
-      // Generate cropped image
-      const croppedImage = await getCroppedImg(imageToCrop, croppedArea);
-      
-      if (!croppedImage) {
-        throw new Error("Failed to generate cropped image");
-      }
-
-      // Update preview
-      setPhotoPreview(croppedImage);
-
-      // Convert base64 to File for storage
-      const blob = await fetch(croppedImage).then((res) => res.blob());
-      const croppedFile = new File([blob], "profile-photo.jpg", {
-        type: "image/jpeg",
-      });
-
-      // Update form data
-      setFormData((prev) => ({ ...prev, profilePhoto: croppedFile }));
-      
-      // Close crop interface
-      setIsCropping(false);
-      setImageToCrop("");
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
-    } catch (error) {
-      console.error("Crop error:", error);
-      setErrorMessage("Failed to crop image. Please try again.");
     }
   };
 
   const validateStep = (): boolean => {
     switch (currentStep) {
       case 1:
-        return !!(formData.fullName && formData.email && formData.mobile && formData.dateOfBirth);
+        return !!(
+          formData.fullName.trim() &&
+          formData.email.trim() &&
+          formData.mobileNumber.trim() &&
+          formData.dateOfBirth.trim()
+        );
       case 2:
-        return !!(formData.address && formData.state && formData.city && formData.pincode);
+        return !!(
+          formData.address.trim() &&
+          formData.state.trim() &&
+          formData.city.trim() &&
+          formData.pincode.trim()
+        );
       case 3:
-        return !!(formData.identificationNumber && formData.centerName && formData.startDate && formData.endDate);
+        return !!(
+          formData.identificationNumber.trim() &&
+          formData.centerName.trim() &&
+          formData.startDate.trim()
+        );
       case 4:
         return !!formData.profilePhoto;
       default:
@@ -255,742 +290,643 @@ function Userprofile() {
   };
 
   const handleFinish = async () => {
-    if (validateStep()) {
-      // Save to localStorage (replace with API call when backend is ready)
-      localStorage.setItem("userProfile", JSON.stringify(formData));
-      setProfileComplete(true);
-      // TODO: Call API to save profile data
-      // Navigate to dashboard
-      navigate("/dashboard");
+    if (!validate()) {
+      toast.error("Please fix highlighted errors");
+      return;
+    }
+
+    if (!validateStep()) {
+      toast.error("Please complete all required fields");
+      return;
+    }
+
+    const persistedUserId = (() => {
+      try {
+        const raw = localStorage.getItem("app_state");
+        if (!raw) return "";
+        const parsed = JSON.parse(raw) as {
+          state?: { user?: { id?: string } };
+        };
+        return parsed?.state?.user?.id || "";
+      } catch {
+        return "";
+      }
+    })();
+
+    const userId = user?.id || persistedUserId;
+
+    if (!userId) {
+      toast.error("User session not found. Please login again.");
+      return;
+    }
+
+    const toYyyyMmDd = (value: string) => {
+      if (!value) return "";
+      return value.slice(0, 10);
+    };
+
+    const safePhotoUrl = formData.photoUrl.startsWith("data:") ? "" : formData.photoUrl;
+
+    const payload = {
+      identificationNumber: formData.identificationNumber,
+      nsdcEnrollmentEnabled: false,
+      fullName: formData.fullName,
+      mobileNumber: formData.mobileNumber,
+      centerName: formData.centerName,
+      deliveryPartner: formData.deliveryPartner,
+      dateOfBirth: toYyyyMmDd(formData.dateOfBirth),
+      startDate: toYyyyMmDd(formData.startDate),
+      endDate: toYyyyMmDd(formData.endDate),
+      photoUrl: safePhotoUrl,
+      addresses: [
+        {
+          addressLine: formData.address,
+          city: formData.city,
+          district: formData.district,
+          state: formData.state,
+          pincode: formData.pincode,
+          type: "PERMANENT",
+        },
+        {
+          addressLine: formData.deliveryAddress,
+          city: formData.deliveryCity || formData.city,
+          district: formData.deliveryDistrict || formData.district,
+          state: formData.deliveryState || formData.state,
+          pincode: formData.deliveryPincode || formData.pincode,
+          type: "DELIVERY",
+        },
+      ],
+    };
+
+    try {
+      setIsSubmitting(true);
+      console.log("FINAL PAYLOAD:", payload);
+
+      if (existingProfile) {
+        const updateId = existingProfile.id || userId;
+        const updateResponse = await apiClient.put(`/profile/${updateId}`, payload);
+        const updateData = updateResponse?.data as {
+          id?: string;
+          profile?: ExistingProfile;
+          addresses?: ExistingAddress[];
+        };
+
+        setLocalProfile(
+          updateData?.profile ?? {
+            ...existingProfile,
+            ...payload,
+            id: updateData?.id || existingProfile.id,
+          }
+        );
+        setLocalAddresses(
+          Array.isArray(updateData?.addresses)
+            ? updateData.addresses
+            : (payload.addresses as ExistingAddress[])
+        );
+        toast.success("Profile saved successfully");
+        setIsEditMode(false);
+        return;
+      }
+
+      const createResponse = await apiClient.post(`/profile/${userId}`, payload);
+      const createData = createResponse?.data as {
+        id?: string;
+        profile?: ExistingProfile;
+        addresses?: ExistingAddress[];
+      };
+
+      setLocalProfile(
+        createData?.profile ?? {
+          ...payload,
+          id: createData?.id,
+        }
+      );
+      setLocalAddresses(
+        Array.isArray(createData?.addresses)
+          ? createData.addresses
+          : (payload.addresses as ExistingAddress[])
+      );
+      toast.success("Profile saved successfully");
+      setIsEditMode(false);
+    } catch (error: unknown) {
+      const message =
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error &&
+        typeof (error as { response?: { data?: { message?: string } } }).response
+          ?.data?.message === "string"
+          ? (error as { response?: { data?: { message?: string } } }).response!
+              .data!.message!
+          : "Could not save profile. Please try again.";
+      toast.error(message);
+      console.error("Profile save failed:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // ========== PROFILE COMPLETION FORM ==========
-  if (!profileComplete) {
+  const renderField = (label: string, value?: string) => (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-medium">{value && value.trim() ? value : "-"}</p>
+    </div>
+  );
+
+  if (hasProfile && !isEditMode) {
+    const profileView = existingProfile as ExistingProfile;
+    const permanentAddress =
+      existingAddresses.find((addr) => addr.type === "PERMANENT") ?? {};
+    const deliveryAddress =
+      existingAddresses.find((addr) => addr.type === "DELIVERY") ?? {};
+    const avatarUrl =
+      profileView.photoUrl && profileView.photoUrl.trim()
+        ? profileView.photoUrl
+        : `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            profileView.fullName || "User"
+          )}`;
+    const permanentAddressText = [
+      permanentAddress.addressLine,
+      permanentAddress.city,
+      permanentAddress.district,
+      permanentAddress.state,
+      permanentAddress.pincode,
+    ]
+      .filter((item) => Boolean(item && item.trim()))
+      .join(", ");
+
     return (
-      <div className="w-full min-h-screen bg-background py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8">
-        <div className="w-full max-w-3xl mx-auto">
-          {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center mb-6 sm:mb-8 lg:mb-10"
-          >
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground mb-2 sm:mb-3 leading-tight">Complete Your Profile</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">Let's get you set up in just a few steps</p>
-          </motion.div>
+      <div className="min-h-screen bg-background text-foreground transition-colors py-12 px-6">
+        <div className="max-w-2xl mx-auto">
+          <div className="mb-12">
+            <h1 className="text-4xl font-bold mb-2">Your Profile</h1>
+            <p className="text-muted-foreground">Review your profile details</p>
+          </div>
 
-          {/* Progress Bar */}
-          <Card className="mb-6 sm:mb-8 rounded-lg sm:rounded-xl shadow-sm border-border/50">
-            <CardContent className="pt-4 sm:pt-6">
-              <div className="flex items-center justify-between mb-2">
-                {steps.map((_step, index) => (
-                  <div key={index} className="flex flex-col items-center flex-1">
-                    <div
-                      className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center mb-1 sm:mb-2 transition-all text-xs sm:text-sm font-medium ${
-                        index + 1 <= currentStep
-                          ? "bg-blue-600 text-white"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {index + 1 < currentStep ? "✓" : index + 1}
-                    </div>
-                    <span className="text-xs text-muted-foreground text-center leading-tight">{_step.title}</span>
-                  </div>
-                ))}
+          <div className="bg-card border border-border rounded-2xl p-8 shadow-sm space-y-6">
+            <div className="flex items-center gap-4 pb-6 border-b border-border">
+              <img
+                src={avatarUrl}
+                alt="Profile"
+                className="h-16 w-16 rounded-full object-cover border border-border"
+              />
+              <div>
+                <h2 className="text-xl font-semibold">
+                  {profileView.fullName && profileView.fullName.trim()
+                    ? profileView.fullName
+                    : "-"}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {profileView.mobileNumber && profileView.mobileNumber.trim()
+                    ? profileView.mobileNumber
+                    : "-"}
+                </p>
               </div>
-              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-600 transition-all duration-300"
-                  style={{ width: `${((currentStep - 1) / (steps.length - 1)) * 100}%` }}
-                ></div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Basic Details
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {renderField("Identification Number", profileView.identificationNumber)}
+                {renderField("Center Name", profileView.centerName)}
+                {renderField("Delivery Partner", profileView.deliveryPartner)}
+                {renderField("Date of Birth", formatDateForInput(profileView.dateOfBirth))}
+                {renderField("Start Date", formatDateForInput(profileView.startDate))}
+                {renderField("End Date", formatDateForInput(profileView.endDate))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
 
-          {/* Form Card */}
-          <Card className="rounded-lg sm:rounded-xl shadow-md border-border/50 mb-6 sm:mb-8">
-            <CardHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4">
-              <CardTitle className="text-xl sm:text-2xl font-semibold leading-tight">
-                {steps[currentStep - 1].title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
-              {/* Step 1: Personal Information */}
-              {currentStep === 1 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="space-y-4 sm:space-y-5"
-                >
-                  <div>
-                    <Label htmlFor="fullName" className="text-xs sm:text-sm font-medium block mb-2">
-                      Full Name *
-                    </Label>
-                    <Input
-                      id="fullName"
-                      name="fullName"
-                      value={formData.fullName}
-                      onChange={handleInputChange}
-                      placeholder="Enter your full name"
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="email" className="text-xs sm:text-sm font-medium block mb-2">
-                      Email (Read-only) *
-                    </Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      value={formData.email}
-                      readOnly
-                      className="w-full rounded-lg bg-muted text-sm px-3 sm:px-4 py-2 cursor-not-allowed"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="mobile" className="text-xs sm:text-sm font-medium block mb-2">
-                      Mobile Number *
-                    </Label>
-                    <Input
-                      id="mobile"
-                      name="mobile"
-                      type="tel"
-                      value={formData.mobile}
-                      onChange={handleInputChange}
-                      placeholder="Enter your mobile number"
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="dateOfBirth" className="text-xs sm:text-sm font-medium block mb-2">
-                      Date of Birth *
-                    </Label>
-                    <Input
-                      id="dateOfBirth"
-                      name="dateOfBirth"
-                      type="date"
-                      value={formData.dateOfBirth}
-                      onChange={handleInputChange}
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                </motion.div>
-              )}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Address Details
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {renderField("Permanent Address", permanentAddressText)}
+                {renderField("Delivery Address", deliveryAddress.addressLine)}
+                {renderField("City", permanentAddress.city)}
+                {renderField("District", permanentAddress.district)}
+                {renderField("State", permanentAddress.state)}
+                {renderField("Pincode", permanentAddress.pincode)}
+              </div>
+            </div>
 
-              {/* Step 2: Address */}
-              {currentStep === 2 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="space-y-4 sm:space-y-5"
-                >
-                  <div>
-                    <Label htmlFor="address" className="text-xs sm:text-sm font-medium block mb-2">
-                      Address *
-                    </Label>
-                    <Input
-                      id="address"
-                      name="address"
-                      value={formData.address}
-                      onChange={handleInputChange}
-                      placeholder="Enter your address"
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="deliveryAddress" className="text-xs sm:text-sm font-medium block mb-2">
-                      Delivery Address
-                    </Label>
-                    <Input
-                      id="deliveryAddress"
-                      name="deliveryAddress"
-                      value={formData.deliveryAddress}
-                      onChange={handleInputChange}
-                      placeholder="Enter delivery address"
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                    <div>
-                      <Label htmlFor="state" className="text-xs sm:text-sm font-medium block mb-2">
-                        State *
-                      </Label>
-                      <Input
-                        id="state"
-                        name="state"
-                        value={formData.state}
-                        onChange={handleInputChange}
-                        placeholder="Enter state"
-                        className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="district" className="text-xs sm:text-sm font-medium block mb-2">
-                        District
-                      </Label>
-                      <Input
-                        id="district"
-                        name="district"
-                        value={formData.district}
-                        onChange={handleInputChange}
-                        placeholder="Enter district"
-                        className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                    <div>
-                      <Label htmlFor="city" className="text-xs sm:text-sm font-medium block mb-2">
-                        City *
-                      </Label>
-                      <Input
-                        id="city"
-                        name="city"
-                        value={formData.city}
-                        onChange={handleInputChange}
-                        placeholder="Enter city"
-                        className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="pincode" className="text-xs sm:text-sm font-medium block mb-2">
-                        Pincode *
-                      </Label>
-                      <Input
-                        id="pincode"
-                        name="pincode"
-                        value={formData.pincode}
-                        onChange={handleInputChange}
-                        placeholder="Enter pincode"
-                        className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Step 3: Work Information */}
-              {currentStep === 3 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="space-y-4 sm:space-y-5"
-                >
-                  <div>
-                    <Label htmlFor="identificationNumber" className="text-xs sm:text-sm font-medium block mb-2">
-                      Identification Number *
-                    </Label>
-                    <Input
-                      id="identificationNumber"
-                      name="identificationNumber"
-                      value={formData.identificationNumber}
-                      onChange={handleInputChange}
-                      placeholder="Enter identification number"
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="centerName" className="text-xs sm:text-sm font-medium block mb-2">
-                      Center Name *
-                    </Label>
-                    <Input
-                      id="centerName"
-                      name="centerName"
-                      value={formData.centerName}
-                      onChange={handleInputChange}
-                      placeholder="Enter center name"
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="deliveryPartner" className="text-xs sm:text-sm font-medium block mb-2">
-                      Delivery Partner
-                    </Label>
-                    <Input
-                      id="deliveryPartner"
-                      name="deliveryPartner"
-                      value={formData.deliveryPartner}
-                      onChange={handleInputChange}
-                      placeholder="Enter delivery partner"
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                    <div>
-                      <Label htmlFor="startDate" className="text-xs sm:text-sm font-medium block mb-2">
-                        Start Date *
-                      </Label>
-                      <Input
-                        id="startDate"
-                        name="startDate"
-                        type="date"
-                        value={formData.startDate}
-                        onChange={handleInputChange}
-                        className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="endDate" className="text-xs sm:text-sm font-medium block mb-2">
-                        End Date *
-                      </Label>
-                      <Input
-                        id="endDate"
-                        name="endDate"
-                        type="date"
-                        value={formData.endDate}
-                        onChange={handleInputChange}
-                        className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Step 4: Upload Photo */}
-              {currentStep === 4 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="space-y-6"
-                >
-                  {/* Error Message */}
-                  {errorMessage && (
-                    <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                      <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
-                    </div>
-                  )}
-
-                  {/* Croping Interface */}
-                  {isCropping && imageToCrop ? (
-                    <div className="space-y-4">
-                      <div className="text-center mb-4">
-                        <h3 className="text-lg font-semibold">Crop Your Photo</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Adjust the image to your liking (1:1 ratio)
-                        </p>
-                      </div>
-
-                      {/* Crop Editor */}
-                      <div className="bg-muted rounded-lg overflow-hidden relative" style={{ height: "300px" }}>
-                        <Cropper
-                          image={imageToCrop}
-                          crop={crop}
-                          zoom={zoom}
-                          aspect={1}
-                          cropShape="round"
-                          showGrid={false}
-                          onCropChange={setCrop}
-                          onCropAreaChange={setCroppedArea}
-                          onZoomChange={setZoom}
-                          objectFit="auto-cover"
-                        />
-                      </div>
-
-                      {/* Zoom Controls */}
-                      <div className="flex items-center gap-4">
-                        <ZoomOut className="w-5 h-5 text-muted-foreground" />
-                        <input
-                          type="range"
-                          min={1}
-                          max={3}
-                          step={0.1}
-                          value={zoom}
-                          onChange={(e) => setZoom(parseFloat(e.target.value))}
-                          className="flex-1 h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-blue-600"
-                        />
-                        <ZoomIn className="w-5 h-5 text-muted-foreground" />
-                      </div>
-
-                      {/* Crop Actions */}
-                      <div className="flex gap-3 pt-2">
-                        <Button
-                          variant="outline"
-                          onClick={handleCancelCrop}
-                          className="flex-1 rounded-lg"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleApplyCrop}
-                          className="flex-1 rounded-lg bg-blue-600 hover:bg-blue-700"
-                        >
-                          Apply Crop
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <Label className="text-sm font-medium mb-4 block">
-                        Upload Profile Photo *
-                      </Label>
-
-                      {/* Upload Area */}
-                      {!photoPreview ? (
-                        <div className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all duration-200">
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            onChange={handlePhotoUpload}
-                            className="hidden"
-                            id="photoUpload"
-                          />
-                          <label htmlFor="photoUpload" className="cursor-pointer block">
-                            <div className="space-y-2">
-                              <Upload className="w-12 h-12 mx-auto text-muted-foreground" />
-                              <p className="text-sm font-medium">Drag and drop your photo here</p>
-                              <p className="text-xs text-muted-foreground">
-                                JPG or PNG • Max 5MB • 1:1 ratio recommended
-                              </p>
-                            </div>
-                          </label>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {/* Cropped Preview */}
-                          <div className="flex flex-col items-center gap-4">
-                            <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-blue-200 dark:border-blue-800 shadow-lg">
-                              <img
-                                src={photoPreview}
-                                alt="Cropped preview"
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <p className="text-sm text-muted-foreground">Your profile photo</p>
-                          </div>
-
-                          {/* Change Photo Button */}
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            onChange={handlePhotoUpload}
-                            className="hidden"
-                            id="photoUploadChange"
-                          />
-                          <label htmlFor="photoUploadChange" className="block">
-                            <Button
-                              variant="outline"
-                              className="w-full rounded-lg cursor-pointer"
-                              asChild
-                            >
-                              <span>Change Photo</span>
-                            </Button>
-                          </label>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Navigation Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            {currentStep > 1 && (
-              <Button
-                variant="outline"
-                onClick={handleBack}
-                className="rounded-lg flex items-center justify-center gap-2 py-2 sm:py-3 text-sm sm:text-base px-4"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Back
-              </Button>
-            )}
-            {currentStep < steps.length ? (
-              <Button
-                onClick={handleNext}
-                disabled={!validateStep()}
-                className="rounded-lg flex-1 sm:flex-1 flex items-center justify-center gap-2 py-2 sm:py-3 text-sm sm:text-base bg-blue-600 hover:bg-blue-700 font-medium"
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            ) : (
-              <Button
-                onClick={handleFinish}
-                disabled={!validateStep()}
-                className="rounded-lg flex-1 sm:flex-1 py-2 sm:py-3 text-sm sm:text-base bg-green-600 hover:bg-green-700 font-medium"
-              >
-                Complete Profile
-              </Button>
-            )}
+            <div className="pt-4 border-t border-border">
+              <Button onClick={() => setIsEditMode(true)}>Edit Profile</Button>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // ========== PROFILE VIEW PAGE ==========
   return (
-    <div className="w-full min-h-screen bg-background py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 overflow-x-hidden">
-      <div className="w-full max-w-3xl mx-auto">
-        {/* Heading */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-6 sm:mb-8 lg:mb-10"
-        >
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight leading-tight">My Profile</h1>
-          <p className="text-xs sm:text-sm lg:text-base text-muted-foreground mt-2 sm:mt-3">Manage your profile information and account settings</p>
-        </motion.div>
+    <div className="min-h-screen bg-background text-foreground transition-colors py-12 px-6">
+      <div className="max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="mb-12">
+          <h1 className="text-4xl font-bold mb-2">Complete Your Profile</h1>
+          <p className="text-muted-foreground">
+            Set up your account in just a few steps
+          </p>
+        </div>
 
-        {/* Profile Information Card */}
-        <Card className="rounded-lg sm:rounded-xl lg:rounded-2xl shadow-md sm:shadow-lg border border-border/50 bg-card mb-4 sm:mb-6 overflow-hidden">
-          <CardHeader className="border-b border-border/50 pb-3 sm:pb-4 lg:pb-6 px-4 sm:px-6 pt-4 sm:pt-5">
-            <CardTitle className="text-lg sm:text-xl lg:text-2xl font-semibold leading-tight">Profile Information</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-5 sm:pt-6 lg:pt-8 px-4 sm:px-6">
-            {/* Avatar Section */}
-            <div className="flex flex-col items-center gap-3 sm:gap-4 mb-5 sm:mb-6 lg:mb-8 pb-5 sm:pb-6 lg:pb-8 border-b border-border/50">
-              <Avatar className="w-20 h-20 sm:w-24 sm:h-24 lg:w-28 lg:h-28 border-4 border-border shadow-md flex-shrink-0">
-                {photoPreview ? (
-                  <AvatarImage src={photoPreview} />
-                ) : (
-                  <AvatarImage src="https://api.dicebear.com/7.x/thumbs/svg?seed=user" />
-                )}
-                <AvatarFallback>{user?.name?.charAt(0) || "U"}</AvatarFallback>
-              </Avatar>
-              {!isEditing && (
-                <Button variant="outline" className="rounded-lg px-3 sm:px-4 lg:px-6 py-2 sm:py-2 text-xs sm:text-sm lg:text-base font-medium">
-                  Change Picture
-                </Button>
-              )}
-            </div>
-
-            {/* Form Fields */}
-            <div className="space-y-6">
-              {!isEditing ? (
-                // VIEW MODE
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">Full Name</Label>
-                    <Input
-                      id="name"
-                      value={formData.fullName || user?.name || ""}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">Email</Label>
-                    <Input
-                      id="email"
-                      value={user?.email}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">Mobile Number</Label>
-                    <Input
-                      id="mobile"
-                      value={formData.mobile}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">Date of Birth</Label>
-                    <Input
-                      id="dateOfBirth"
-                      value={formData.dateOfBirth}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">Address</Label>
-                    <Input
-                      id="address"
-                      value={formData.address}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">City</Label>
-                    <Input
-                      id="city"
-                      value={formData.city}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">Center Name</Label>
-                    <Input
-                      id="centerName"
-                      value={formData.centerName}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs sm:text-sm font-medium text-muted-foreground">Provider</Label>
-                    <Input
-                      id="provider"
-                      value={user?.provider}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                </div>
-              ) : (
-                // EDIT MODE
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName" className="text-xs sm:text-sm font-medium">Full Name</Label>
-                    <Input
-                      id="fullName"
-                      value={formData.fullName}
-                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      placeholder="Enter your full name"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="email-view" className="text-xs sm:text-sm font-medium">Email</Label>
-                    <Input
-                      id="email-view"
-                      value={user?.email}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 cursor-not-allowed text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="mobile-edit" className="text-xs sm:text-sm font-medium">Mobile Number</Label>
-                    <Input
-                      id="mobile-edit"
-                      value={formData.mobile}
-                      onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      placeholder="Enter your mobile number"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="dob-edit" className="text-xs sm:text-sm font-medium">Date of Birth</Label>
-                    <Input
-                      id="dob-edit"
-                      type="date"
-                      value={formData.dateOfBirth}
-                      onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="address-edit" className="text-xs sm:text-sm font-medium">Address</Label>
-                    <Input
-                      id="address-edit"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      placeholder="Enter your address"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="city-edit" className="text-xs sm:text-sm font-medium">City</Label>
-                    <Input
-                      id="city-edit"
-                      value={formData.city}
-                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      placeholder="Enter your city"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="centerName-edit" className="text-xs sm:text-sm font-medium">Center Name</Label>
-                    <Input
-                      id="centerName-edit"
-                      value={formData.centerName}
-                      onChange={(e) => setFormData({ ...formData, centerName: e.target.value })}
-                      className="w-full rounded-lg text-sm px-3 sm:px-4 py-2"
-                      placeholder="Enter center name"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="provider-view" className="text-xs sm:text-sm font-medium">Provider</Label>
-                    <Input
-                      id="provider-view"
-                      value={user?.provider}
-                      readOnly
-                      className="w-full rounded-lg bg-muted/50 border-border/50 cursor-not-allowed text-sm px-3 sm:px-4 py-2"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Action Buttons */}
-            <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-border/50">
-              {!isEditing ? (
-                <Button
-                  onClick={() => setIsEditing(true)}
-                  className="w-full rounded-lg py-3 sm:py-6 text-sm sm:text-base font-medium bg-blue-600 hover:bg-blue-700"
+        {/* Progress Bar */}
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-4">
+            {steps.map((_step, index) => (
+              <div key={index} className="flex items-center flex-1">
+                <div
+                  className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold transition-all ${
+                    index < currentStep
+                      ? "bg-blue-600 text-white"
+                      : index === currentStep - 1
+                      ? "bg-blue-600 text-white ring-4 ring-blue-200 dark:ring-blue-900"
+                      : "bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+                  }`}
                 >
-                  Edit Profile
-                </Button>
-              ) : (
-                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsEditing(false)}
-                    className="flex-1 rounded-lg py-2 sm:py-3 lg:py-4 text-xs sm:text-sm lg:text-base font-medium"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      localStorage.setItem("userProfile", JSON.stringify(formData));
-                      setIsEditing(false);
-                    }}
-                    className="flex-1 rounded-lg py-2 sm:py-3 lg:py-4 text-xs sm:text-sm lg:text-base font-medium bg-green-600 hover:bg-green-700"
-                  >
-                    Save Changes
-                  </Button>
+                  {index < currentStep - 1 ? "✓" : index + 1}
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Account Settings Card */}
-        <Card className="rounded-lg sm:rounded-xl lg:rounded-2xl shadow-md sm:shadow-lg border border-border/50 bg-card overflow-hidden">
-          <CardHeader className="border-b border-border/50 pb-3 sm:pb-4 lg:pb-6 px-4 sm:px-6 pt-4 sm:pt-5">
-            <CardTitle className="text-lg sm:text-xl lg:text-2xl font-semibold leading-tight">Account Settings</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-5 sm:pt-6 lg:pt-8 px-4 sm:px-6 space-y-3 sm:space-y-4 pb-4 sm:pb-6">
-            <Button
-              variant="outline"
-              className="w-full rounded-lg py-2 sm:py-3 lg:py-4 text-xs sm:text-sm lg:text-base font-medium"
-            >
-              Change Password
-            </Button>
-            <Button
-              variant="destructive"
-              className="w-full rounded-lg py-2 sm:py-3 lg:py-4 text-xs sm:text-sm lg:text-base font-medium"
-            >
-              Delete Account
-            </Button>
-          </CardContent>
-        </Card>
+                {index < steps.length - 1 && (
+                  <div
+                    className={`h-1 flex-1 mx-2 transition-all ${
+                      index < currentStep - 1
+                        ? "bg-blue-600"
+                        : "bg-gray-200 dark:bg-gray-800"
+                    }`}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-between text-xs font-medium">
+            {steps.map((step, index) => (
+              <span
+                key={index}
+                className={`text-center flex-1 ${
+                  index <= currentStep - 1
+                    ? "text-foreground"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {step}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Form Card */}
+        <div className="bg-card border border-border rounded-2xl p-8 shadow-sm">
+          {/* Step 1: Personal Information */}
+          {currentStep === 1 && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  name="fullName"
+                  value={formData.fullName}
+                  onChange={handleInputChange}
+                  placeholder="Enter your full name"
+                  className={`w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${inputErrorClass("fullName")}`}
+                />
+                {errors.fullName ? (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.fullName}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Email ID *
+                </label>
+                <input
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  placeholder="Enter your email"
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Mobile Number *
+                </label>
+                <input
+                  type="tel"
+                  name="mobileNumber"
+                  value={formData.mobileNumber}
+                  onChange={handleInputChange}
+                  placeholder="Enter your mobile number"
+                  className={`w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${inputErrorClass("mobileNumber")}`}
+                />
+                {errors.mobileNumber ? (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.mobileNumber}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Date of Birth *
+                </label>
+                <input
+                  type="date"
+                  name="dateOfBirth"
+                  value={formData.dateOfBirth}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${inputErrorClass("dateOfBirth")}`}
+                />
+                {errors.dateOfBirth ? (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.dateOfBirth}</p>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Address Information */}
+          {currentStep === 2 && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Address *
+                </label>
+                <textarea
+                  name="address"
+                  value={formData.address}
+                  onChange={handleInputChange}
+                  placeholder="Enter your residential address"
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Delivery Address
+                </label>
+                <textarea
+                  name="deliveryAddress"
+                  value={formData.deliveryAddress}
+                  onChange={handleInputChange}
+                  placeholder="Enter delivery address (optional)"
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    State *
+                  </label>
+                  <input
+                    type="text"
+                    name="state"
+                    value={formData.state}
+                    onChange={handleInputChange}
+                    placeholder="Enter state"
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    District
+                  </label>
+                  <input
+                    type="text"
+                    name="district"
+                    value={formData.district}
+                    onChange={handleInputChange}
+                    placeholder="Enter district"
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    City *
+                  </label>
+                  <input
+                    type="text"
+                    name="city"
+                    value={formData.city}
+                    onChange={handleInputChange}
+                    placeholder="Enter city"
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Pincode *
+                  </label>
+                  <input
+                    type="text"
+                    name="pincode"
+                    value={formData.pincode}
+                    onChange={handleInputChange}
+                    placeholder="Enter pincode"
+                    className={`w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${inputErrorClass("pincode")}`}
+                  />
+                  {errors.pincode ? (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.pincode}</p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Work Information */}
+          {currentStep === 3 && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Identification Number *
+                </label>
+                <input
+                  type="text"
+                  name="identificationNumber"
+                  value={formData.identificationNumber}
+                  onChange={handleInputChange}
+                  placeholder="Enter your identification number"
+                  className={`w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${inputErrorClass("identificationNumber")}`}
+                />
+                {errors.identificationNumber ? (
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.identificationNumber}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Center Name *
+                </label>
+                <input
+                  type="text"
+                  name="centerName"
+                  value={formData.centerName}
+                  onChange={handleInputChange}
+                  placeholder="Enter center name"
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Delivery Partner
+                </label>
+                <input
+                  type="text"
+                  name="deliveryPartner"
+                  value={formData.deliveryPartner}
+                  onChange={handleInputChange}
+                  placeholder="Enter delivery partner name (optional)"
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Start Date *
+                  </label>
+                  <input
+                    type="date"
+                    name="startDate"
+                    value={formData.startDate}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    name="endDate"
+                    value={formData.endDate}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Upload Photo */}
+          {currentStep === 4 && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div>
+                <label className="block text-sm font-medium mb-4">
+                  Upload Profile Photo *
+                </label>
+
+                {photoPreview ? (
+                  <div className="space-y-4">
+                    <div className="relative w-40 h-40 mx-auto">
+                      <img
+                        src={photoPreview}
+                        alt="Profile preview"
+                        className="w-full h-full object-cover rounded-xl border border-border"
+                      />
+                    </div>
+
+                    <label className="block">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          document.getElementById("photo-input")?.click();
+                        }}
+                      >
+                        <Upload size={18} className="mr-2" />
+                        Change Photo
+                      </Button>
+                    </label>
+
+                    <input
+                      id="photo-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="hidden"
+                    />
+                  </div>
+                ) : (
+                  <label className="relative flex flex-col items-center justify-center w-full px-8 py-12 border-2 border-dashed border-border rounded-2xl hover:border-blue-500 transition cursor-pointer bg-background/50 hover:bg-background/80">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <Upload size={32} className="mb-2 text-muted-foreground" />
+                      <p className="text-sm font-medium">
+                        Click to upload or drag and drop
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        PNG, JPG, GIF up to 10MB
+                      </p>
+                    </div>
+
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Buttons */}
+          <div className="flex gap-4 mt-12 pt-8 border-t border-border">
+            {currentStep > 1 && (
+              <Button
+                variant="outline"
+                onClick={handleBack}
+                className="flex items-center gap-2"
+              >
+                <ChevronLeft size={18} />
+                Back
+              </Button>
+            )}
+
+            {currentStep < steps.length ? (
+              <Button
+                onClick={handleNext}
+                disabled={!validateStep()}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2"
+              >
+                Next
+                <ChevronRight size={18} />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleFinish}
+                disabled={!validateStep() || isSubmitting}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isSubmitting ? "Saving..." : "Finish"}
+              </Button>
+            )}
+          </div>
+
+          {/* Validation Message */}
+          {!validateStep() && (
+            <p className="text-sm text-red-600 dark:text-red-400 mt-4 text-center">
+              Please fill in all required fields
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-export default Userprofile;
