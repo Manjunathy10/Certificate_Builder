@@ -25,7 +25,7 @@ function Userhome() {
   };
 
   return (
-    <div className="min-h-full bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground p-6">
       {/* Page Title */}
       <motion.h1
         initial={{ opacity: 0, y: 10 }}

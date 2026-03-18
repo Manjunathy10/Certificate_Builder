@@ -9,6 +9,7 @@ function Navbar() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
   const navigate = useNavigate();
 
   const checkLogin = useAuth((state) => state.checkLogin);
@@ -17,6 +18,7 @@ function Navbar() {
 
   const isLoggedIn = checkLogin();
 
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -64,6 +66,7 @@ function Navbar() {
       <div className="max-w-[1200px] mx-auto px-6">
         <div className="flex items-center justify-between h-16">
 
+          {/* Logo */}
           <div className="flex items-center gap-2 font-semibold">
             <div className="h-7 w-7 rounded-md bg-gradient-to-r from-blue-600 to-blue-400 flex items-center justify-center text-white font-bold">
               C
@@ -71,7 +74,9 @@ function Navbar() {
             <span className="text-lg">DEMO</span>
           </div>
 
+          {/* Desktop Menu - Conditional based on auth state */}
           {!isLoggedIn ? (
+            // Public Navigation
             <div className="hidden md:flex items-center gap-8 text-sm font-medium">
               <NavLink to="#" className="hover:text-blue-600 transition">Features</NavLink>
               <NavLink to="#" className="hover:text-blue-600 transition">Solutions</NavLink>
@@ -79,6 +84,7 @@ function Navbar() {
               <NavLink to="#" className="hover:text-blue-600 transition">Resources</NavLink>
             </div>
           ) : (
+            // Dashboard Navigation (when logged in)
             <div className="hidden md:flex items-center gap-8 text-sm font-medium">
               <NavLink to="/dashboard" className="hover:text-blue-600 transition">Dashboard</NavLink>
               <NavLink to="/templates" className="hover:text-blue-600 transition">Templates</NavLink>
@@ -86,6 +92,7 @@ function Navbar() {
             </div>
           )}
 
+          {/* Right Section */}
           <div className="hidden md:flex items-center gap-4">
             {!isLoggedIn ? (
               <>
@@ -100,6 +107,7 @@ function Navbar() {
                 </NavLink>
               </>
             ) : (
+              // User Dropdown Menu
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -114,6 +122,7 @@ function Navbar() {
                   />
                 </button>
 
+                {/* Dropdown Menu */}
                 {dropdownOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50">
                     <NavLink
@@ -138,6 +147,7 @@ function Navbar() {
               </div>
             )}
 
+            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition"
@@ -147,6 +157,7 @@ function Navbar() {
             </button>
           </div>
 
+          {/* Mobile Button */}
           <div className="md:hidden">
             <button
               onClick={() => setOpen(!open)}
@@ -158,10 +169,12 @@ function Navbar() {
 
         </div>
 
+        {/* Mobile Menu - Conditional based on auth state */}
         {open && (
           <div className="md:hidden flex flex-col gap-4 pb-6 pt-4 text-sm font-medium border-t border-gray-200 dark:border-gray-700">
             {!isLoggedIn ? (
               <>
+                {/* Public Navigation Links for Mobile */}
                 <NavLink to="#" className="hover:text-blue-600 transition">
                   Features
                 </NavLink>
@@ -189,6 +202,7 @@ function Navbar() {
               </>
             ) : (
               <>
+                {/* Dashboard Navigation Links for Mobile */}
                 <NavLink to="/dashboard" className="hover:text-blue-600 transition">
                   Dashboard
                 </NavLink>
@@ -220,6 +234,7 @@ function Navbar() {
 
             <div className="border-t border-gray-200 dark:border-gray-700 my-4"></div>
 
+            {/* Theme Toggle Mobile */}
             <button
               onClick={toggleTheme}
               className="flex items-center gap-2 text-sm hover:text-blue-600 transition"

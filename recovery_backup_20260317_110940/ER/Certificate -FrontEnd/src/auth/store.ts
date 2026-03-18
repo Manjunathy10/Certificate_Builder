@@ -63,7 +63,7 @@ const useAuth = create<AuthState>()(
           });
         }
       },
-      logout: async () => {
+      logout: async (silent = false) => {
         try {
           //   if (!silent) {
           //     await logoutUser();
@@ -87,7 +87,8 @@ const useAuth = create<AuthState>()(
         });
       },
       checkLogin: () => {
-        return Boolean(get().accessToken && get().authStatus);
+        if (get().accessToken && get().authStatus) return true;
+        else false;
       },
     }),
 

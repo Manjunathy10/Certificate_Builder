@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
@@ -11,35 +12,23 @@ import Userlayout from "./pages/users/Userlayout.tsx";
 import Userhome from "./pages/users/Userhome.tsx";
 import Userprofile from "./pages/users/Userprofile.tsx";
 import OAuthSuccess from "./pages/OAuthSuccess.tsx";
-import AddStudent from "./pages/AddStudent.tsx";
-import ImportStudent from "./pages/ImportStudent.tsx";
-import StudentList from "./pages/StudentList";
-import EditStudent from "./pages/EditStudent";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
     <Routes>
       <Route path="/" element={<RootLayout />}>
         <Route index element={<App />} />
-        <Route path="login" element={<Login />} />
-        <Route path="signup" element={<Signup />} />
-        <Route path="services" element={<Services />} />
-        <Route path="about" element={<About />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/services" element={<Services />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/dashboard" element={<Userlayout />}>
+          <Route index element={<Userhome />} />
+          <Route path="profile" element={<Userprofile />} />
+          {/* .... */}
+        </Route>
         <Route path="oauth/success" element={<OAuthSuccess />} />
         <Route path="oauth/failure" element={<OAuthSuccess />} />
-      </Route>
-
-      <Route path="/dashboard" element={<Userlayout />}>
-        <Route index element={<Userhome />} />
-        <Route path="profile" element={<Userprofile />} />
-
-         {/* Students */}
-  <Route path="students">
-    <Route path="add" element={<AddStudent />} />
-    <Route path="import" element={<ImportStudent />} />
-    <Route path="list" element={<StudentList />} />
-    <Route path="edit/:id" element={<EditStudent />} />
-  </Route>
       </Route>
     </Routes>
   </BrowserRouter>

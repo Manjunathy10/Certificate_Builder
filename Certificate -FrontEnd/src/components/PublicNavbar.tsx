@@ -4,11 +4,12 @@ import { Button } from "./ui/button";
 import { Menu, X, Sun, Moon, LogOut, ChevronDown } from "lucide-react";
 import useAuth from "@/auth/store";
 
-function Navbar() {
+function PublicNavbar() {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
   const navigate = useNavigate();
 
   const checkLogin = useAuth((state) => state.checkLogin);
@@ -60,36 +61,49 @@ function Navbar() {
   };
 
   return (
-    <nav className="sticky top-0 w-full border-b bg-white dark:bg-gray-900 dark:border-gray-700 z-50">
-      <div className="max-w-[1200px] mx-auto px-6">
-        <div className="flex items-center justify-between h-16">
-
+    <nav className="sticky top-0 z-50 w-full border-b bg-white dark:border-gray-700 dark:bg-gray-900">
+      <div className="mx-auto max-w-[1200px] px-6">
+        <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-2 font-semibold">
-            <div className="h-7 w-7 rounded-md bg-gradient-to-r from-blue-600 to-blue-400 flex items-center justify-center text-white font-bold">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-r from-blue-600 to-blue-400 font-bold text-white">
               C
             </div>
             <span className="text-lg">DEMO</span>
           </div>
 
           {!isLoggedIn ? (
-            <div className="hidden md:flex items-center gap-8 text-sm font-medium">
-              <NavLink to="#" className="hover:text-blue-600 transition">Features</NavLink>
-              <NavLink to="#" className="hover:text-blue-600 transition">Solutions</NavLink>
-              <NavLink to="#" className="hover:text-blue-600 transition">Pricing</NavLink>
-              <NavLink to="#" className="hover:text-blue-600 transition">Resources</NavLink>
+            <div className="hidden items-center gap-8 text-sm font-medium md:flex">
+              <NavLink to="#" className="transition hover:text-blue-600">
+                Features
+              </NavLink>
+              <NavLink to="#" className="transition hover:text-blue-600">
+                Solutions
+              </NavLink>
+              <NavLink to="#" className="transition hover:text-blue-600">
+                Pricing
+              </NavLink>
+              <NavLink to="#" className="transition hover:text-blue-600">
+                Resources
+              </NavLink>
             </div>
           ) : (
-            <div className="hidden md:flex items-center gap-8 text-sm font-medium">
-              <NavLink to="/dashboard" className="hover:text-blue-600 transition">Dashboard</NavLink>
-              <NavLink to="/templates" className="hover:text-blue-600 transition">Templates</NavLink>
-              <NavLink to="/certificates" className="hover:text-blue-600 transition">Certificates</NavLink>
+            <div className="hidden items-center gap-8 text-sm font-medium md:flex">
+              <NavLink to="/dashboard" className="transition hover:text-blue-600">
+                Dashboard
+              </NavLink>
+              <NavLink to="/dashboard/certificates" className="transition hover:text-blue-600">
+                Certificates
+              </NavLink>
+              <NavLink to="/dashboard/settings" className="transition hover:text-blue-600">
+                Settings
+              </NavLink>
             </div>
           )}
 
-          <div className="hidden md:flex items-center gap-4">
+          <div className="hidden items-center gap-4 md:flex">
             {!isLoggedIn ? (
               <>
-                <NavLink to="/login" className="text-sm hover:text-blue-600 transition">
+                <NavLink to="/login" className="text-sm transition hover:text-blue-600">
                   Login
                 </NavLink>
 
@@ -103,32 +117,30 @@ function Navbar() {
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition text-sm font-medium"
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
                   <span>{user?.name || "User"}</span>
                   <ChevronDown
                     size={16}
-                    className={`transition-transform ${
-                      dropdownOpen ? "rotate-180" : ""
-                    }`}
+                    className={`transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
                   />
                 </button>
 
                 {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50">
+                  <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
                     <NavLink
-                      to="/dashboard/profile"
-                      className="block px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                      to="/dashboard/settings"
+                      className="block px-4 py-2 text-sm transition hover:bg-gray-100 dark:hover:bg-gray-700"
                       onClick={() => setDropdownOpen(false)}
                     >
-                      Profile
+                      Settings
                     </NavLink>
                     <button
                       onClick={() => {
                         handleLogout();
                         setDropdownOpen(false);
                       }}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition flex items-center gap-2 text-red-600 hover:text-red-700"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-red-600 transition hover:bg-gray-100 hover:text-red-700 dark:hover:bg-gray-700"
                     >
                       <LogOut size={16} />
                       Logout
@@ -140,7 +152,7 @@ function Navbar() {
 
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+              className="rounded-md p-2 transition hover:bg-gray-200 dark:hover:bg-gray-700"
               aria-label="Toggle theme"
             >
               {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
@@ -150,34 +162,33 @@ function Navbar() {
           <div className="md:hidden">
             <button
               onClick={() => setOpen(!open)}
-              className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+              className="rounded-md p-2 hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               {open ? <X size={24} /> : <Menu size={24} />}
             </button>
           </div>
-
         </div>
 
         {open && (
-          <div className="md:hidden flex flex-col gap-4 pb-6 pt-4 text-sm font-medium border-t border-gray-200 dark:border-gray-700">
+          <div className="flex flex-col gap-4 border-t border-gray-200 pb-6 pt-4 text-sm font-medium dark:border-gray-700 md:hidden">
             {!isLoggedIn ? (
               <>
-                <NavLink to="#" className="hover:text-blue-600 transition">
+                <NavLink to="#" className="transition hover:text-blue-600">
                   Features
                 </NavLink>
-                <NavLink to="#" className="hover:text-blue-600 transition">
+                <NavLink to="#" className="transition hover:text-blue-600">
                   Solutions
                 </NavLink>
-                <NavLink to="#" className="hover:text-blue-600 transition">
+                <NavLink to="#" className="transition hover:text-blue-600">
                   Pricing
                 </NavLink>
-                <NavLink to="#" className="hover:text-blue-600 transition">
+                <NavLink to="#" className="transition hover:text-blue-600">
                   Resources
                 </NavLink>
 
-                <div className="border-t border-gray-200 dark:border-gray-700 my-4"></div>
+                <div className="my-4 border-t border-gray-200 dark:border-gray-700"></div>
 
-                <NavLink to="/login" className="hover:text-blue-600 transition">
+                <NavLink to="/login" className="transition hover:text-blue-600">
                   Login
                 </NavLink>
 
@@ -189,28 +200,24 @@ function Navbar() {
               </>
             ) : (
               <>
-                <NavLink to="/dashboard" className="hover:text-blue-600 transition">
+                <NavLink to="/dashboard" className="transition hover:text-blue-600">
                   Dashboard
                 </NavLink>
-                <NavLink to="/templates" className="hover:text-blue-600 transition">
-                  Templates
-                </NavLink>
-                <NavLink to="/certificates" className="hover:text-blue-600 transition">
+                <NavLink to="/dashboard/certificates" className="transition hover:text-blue-600">
                   Certificates
                 </NavLink>
-
-                <div className="border-t border-gray-200 dark:border-gray-700 my-4"></div>
-
-                <NavLink to="/profile" className="hover:text-blue-600 transition">
-                  Profile
+                <NavLink to="/dashboard/settings" className="transition hover:text-blue-600">
+                  Settings
                 </NavLink>
+
+                <div className="my-4 border-t border-gray-200 dark:border-gray-700"></div>
 
                 <button
                   onClick={() => {
                     handleLogout();
                     setOpen(false);
                   }}
-                  className="flex items-center gap-2 text-left hover:text-red-600 transition text-red-600"
+                  className="flex items-center gap-2 text-left text-red-600 transition hover:text-red-600"
                 >
                   <LogOut size={16} />
                   Logout
@@ -218,11 +225,11 @@ function Navbar() {
               </>
             )}
 
-            <div className="border-t border-gray-200 dark:border-gray-700 my-4"></div>
+            <div className="my-4 border-t border-gray-200 dark:border-gray-700"></div>
 
             <button
               onClick={toggleTheme}
-              className="flex items-center gap-2 text-sm hover:text-blue-600 transition"
+              className="flex items-center gap-2 text-sm transition hover:text-blue-600"
             >
               {theme === "light" ? (
                 <>
@@ -243,4 +250,4 @@ function Navbar() {
   );
 }
 
-export default Navbar;
+export default PublicNavbar;

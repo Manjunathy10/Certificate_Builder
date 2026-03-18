@@ -11,12 +11,12 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @OpenAPIDefinition(
         info = @Info(
-                title = "Auth Application build by Durgesh Tiwari.",
+                title = "Certificater Builder  build by Manjunath Yadgiri.",
                 description = "Generic auth app that can be used with any application.",
                 contact = @Contact(
-                        name = "Durgesh Kumar Tiwari",
-                        url = "https://www.substringtechnologies.com/",
-                        email = "support@substringtechnologies.com"
+                        name = "Manjunath Yadgiri",
+                        url = "",
+                        email = ""
                 ),
                 version = "1.0",
                 summary = "This app is very useful if you dont want create auth app from scratch."
