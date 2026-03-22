@@ -2,6 +2,8 @@ package com.substring.auth.app.auth.services.impl;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.URL;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -17,6 +19,8 @@ import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.Image;
 import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.properties.TextAlignment;
+import com.itextpdf.layout.properties.VerticalAlignment;
+
 import com.substring.auth.app.auth.entities.Certificate;
 import com.substring.auth.app.auth.entities.CertificateTemplate;
 import com.substring.auth.app.auth.entities.CertificateTemplateElement;
@@ -32,122 +36,171 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class CertificateGeneratorServiceImpl {
 
-	private final StudentRepository studentRepository;
-	private final CertificateTemplateRepository templateRepository;
-	private final CertificateRepository certificateRepository;
+    private final StudentRepository studentRepository;
+    private final CertificateTemplateRepository templateRepository;
+    private final CertificateRepository certificateRepository;
 
-	public byte[] generateCertificate(UUID studentId, UUID templateId) {
+    public byte[] generateCertificate(UUID studentId, UUID templateId) {
 
-		try {
+        try {
 
-			Student student = studentRepository.findById(studentId)
-					.orElseThrow(() -> new RuntimeException("Student not found"));
+            Student student = studentRepository.findById(studentId)
+                    .orElseThrow(() -> new RuntimeException("Student not found"));
 
-			CertificateTemplate template = templateRepository.findById(templateId)
-					.orElseThrow(() -> new RuntimeException("Template not found"));
+            CertificateTemplate template = templateRepository.findById(templateId)
+                    .orElseThrow(() -> new RuntimeException("Template not found"));
 
-			ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-			PdfWriter writer = new PdfWriter(out);
-			PdfDocument pdf = new PdfDocument(writer);
+            PdfWriter writer = new PdfWriter(out);
+            PdfDocument pdf = new PdfDocument(writer);
 
-			Document document = new Document(pdf, PageSize.A4);
+            // ============================================
+            // ✅ DYNAMIC ORIENTATION
+            // ============================================
+            PageSize pageSize;
 
-			// CERTIFICATE NUMBER
-			String certNumber = "CERT-" + UUID.randomUUID().toString().substring(0, 8);
+            if ("LANDSCAPE".equalsIgnoreCase(template.getOrientation())) {
+                pageSize = PageSize.A4.rotate();
+            } else {
+                pageSize = PageSize.A4;
+            }
 
-			// BACKGROUND IMAGE
-			Image bg = new Image(ImageDataFactory.create(template.getBackgroundImage()));
+            Document document = new Document(pdf, pageSize);
 
-			bg.scaleToFit(PageSize.A4.getWidth(), PageSize.A4.getHeight());
-			bg.setFixedPosition(0, 0);
+            // ============================================
+            // ✅ REMOVE DEFAULT MARGINS
+            // ============================================
+            document.setMargins(0, 0, 0, 0);
 
-			document.add(bg);
+            // ============================================
+            // ✅ CERTIFICATE NUMBER
+            // ============================================
+            String certNumber = "CERT-" + UUID.randomUUID().toString().substring(0, 8);
 
-			// DRAW TEMPLATE ELEMENTS
-			for (CertificateTemplateElement element : template.getElements()) {
+            // ============================================
+            // ✅ BACKGROUND FULL COVER
+            // ============================================
+            try {
+                URL url = new URL(template.getBackgroundImage());
+                InputStream is = url.openStream();
 
-				// ==============================
-				// QR CODE ELEMENT
-				// ==============================
-				if ("qr_code".equalsIgnoreCase(element.getElementName())) {
+                byte[] imageBytes = is.readAllBytes();
 
-					String verifyUrl = "http://localhost:8080/api/v1/certificates/verify/" + certNumber;
+                Image bg = new Image(ImageDataFactory.create(imageBytes));
 
-					BufferedImage qr = QrCodeGenerator.generateQr(verifyUrl);
+                bg.scaleAbsolute(pageSize.getWidth(), pageSize.getHeight());
+                bg.setFixedPosition(0, 0);
 
-					ByteArrayOutputStream qrStream = new ByteArrayOutputStream();
+                document.add(bg);
 
-					ImageIO.write(qr, "png", qrStream);
+            } catch (Exception e) {
+                System.out.println("⚠ Background load failed");
+            }
 
-					Image qrImage = new Image(ImageDataFactory.create(qrStream.toByteArray()));
+            // ============================================
+            // ✅ ELEMENTS RENDER
+            // ============================================
+            for (CertificateTemplateElement element : template.getElements()) {
 
-					qrImage.scaleToFit(element.getWidth(), element.getHeight());
+                // ======================
+                // QR CODE
+                // ======================
+                if ("qr_code".equalsIgnoreCase(element.getElementName())) {
 
-					qrImage.setFixedPosition(element.getXPosition(), element.getYPosition());
+                    String verifyUrl = "http://localhost:8083/api/v1/certificates/verify/" + certNumber;
 
-					document.add(qrImage);
+                    BufferedImage qr = QrCodeGenerator.generateQr(verifyUrl);
 
-					continue;
-				}
+                    ByteArrayOutputStream qrStream = new ByteArrayOutputStream();
+                    ImageIO.write(qr, "png", qrStream);
 
-				// ==============================
-				// NORMAL TEXT ELEMENTS
-				// ==============================
+                    Image qrImage = new Image(ImageDataFactory.create(qrStream.toByteArray()));
 
-				String value = getStudentValue(student, element.getElementName(), certNumber);
+                    qrImage.scaleToFit(element.getWidth(), element.getHeight());
 
-				Paragraph text = new Paragraph(value).setFontSize(element.getFontSize());
+                    qrImage.setFixedPosition(
+                            element.getXPosition(),
+                            element.getYPosition()
+                    );
 
-				if ("center".equalsIgnoreCase(element.getTextAlign()))
-					text.setTextAlignment(TextAlignment.CENTER);
+                    document.add(qrImage);
+                    continue;
+                }
 
-				text.setFixedPosition(element.getXPosition(), element.getYPosition(), element.getWidth());
+                // ======================
+                // TEXT ELEMENTS
+                // ======================
+                String value = getStudentValue(student, element.getElementName(), certNumber);
 
-				document.add(text);
-			}
+                Paragraph text = new Paragraph(value)
+                        .setFontSize(element.getFontSize())
+                        .setBold(); // 🔥 better visibility
 
-			document.close();
+                // alignment
+                if ("center".equalsIgnoreCase(element.getTextAlign())) {
+                    text.setTextAlignment(TextAlignment.CENTER);
+                } else if ("right".equalsIgnoreCase(element.getTextAlign())) {
+                    text.setTextAlignment(TextAlignment.RIGHT);
+                } else {
+                    text.setTextAlignment(TextAlignment.LEFT);
+                }
 
-			// SAVE CERTIFICATE RECORD
-			Certificate cert = Certificate.builder().certificateNumber(certNumber).studentId(studentId)
-					.templateId(templateId).issueDate(LocalDate.now()).build();
+                // position
+                text.setFixedPosition(
+                        element.getXPosition(),
+                        element.getYPosition(),
+                        element.getWidth()
+                );
 
-			certificateRepository.save(cert);
+                document.add(text);
+            }
 
-			return out.toByteArray();
+            document.close();
 
-		} catch (Exception e) {
+            // ============================================
+            // ✅ SAVE CERTIFICATE
+            // ============================================
+            Certificate cert = Certificate.builder()
+                    .certificateNumber(certNumber)
+                    .studentId(studentId)
+                    .templateId(templateId)
+                    .issueDate(LocalDate.now())
+                    .build();
 
-			throw new RuntimeException("Certificate generation failed: " + e.getMessage());
-		}
-	}
+            certificateRepository.save(cert);
 
-	// ========================================
-	// STUDENT DATA MAPPING
-	// ========================================
+            return out.toByteArray();
 
-	private String getStudentValue(Student student, String field, String certNumber) {
+        } catch (Exception e) {
+            throw new RuntimeException("Certificate generation failed: " + e.getMessage());
+        }
+    }
 
-		switch (field) {
+    // ============================================
+    // ✅ FIELD MAPPING
+    // ============================================
+    private String getStudentValue(Student student, String field, String certNumber) {
 
-		case "student_name":
-			return student.getFullName();
+        switch (field) {
 
-		case "course":
-			return student.getCourseName();
+            case "student_name":
+                return student.getFullName();
 
-		case "email":
-			return student.getEmail();
+            case "course":
+                return student.getCourseName();
 
-		case "certificate_no":
-			return certNumber;
+            case "email":
+                return student.getEmail();
 
-		case "issue_date":
-			return LocalDate.now().toString();
+            case "certificate_no":
+                return certNumber;
 
-		default:
-			return "";
-		}
-	}
+            case "issue_date":
+                return LocalDate.now().toString();
+
+            default:
+                return "";
+        }
+    }
 }

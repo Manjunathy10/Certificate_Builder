@@ -1,4 +1,4 @@
-import apiClient from "@/config/ApiClient";
+import apiClient from "@/config/apiClient";
 import useAuth from "@/auth/store";
 
 export type AddStudentPayload = {

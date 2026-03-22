@@ -3,12 +3,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
-   UserPlus,
+  UserPlus,
   Upload,
   List,
-  Download,
-  FileText,
-  Trash2,
+  LayoutTemplate,
+  WandSparkles,
 } from "lucide-react";
 import { NavLink } from "react-router";
 
@@ -50,19 +49,14 @@ function Sidebar({ isOpen, onClose, isCollapsed, onToggleCollapse }: SidebarProp
     icon: List,
   },
   {
-    label: "Export Student",
-    to: "/dashboard/students/export",
-    icon: Download,
+    label: "Templates",
+    to: "/dashboard/certificates",
+    icon: LayoutTemplate,
   },
   {
-    label: "Export Certificate",
-    to: "/dashboard/certificates/export",
-    icon: FileText,
-  },
-  {
-    label: "Delete Certificate",
-    to: "/dashboard/certificates/delete",
-    icon: Trash2,
+    label: "Certificate Builder",
+    to: "/dashboard/certificates/builder",
+    icon: WandSparkles,
   }
   ];
 

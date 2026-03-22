@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import useAuthStore from "@/auth/store";
-import apiClient from "@/config/ApiClient";
+import apiClient from "@/config/apiClient";
 import toast from "react-hot-toast";
 import { Upload, ChevronRight, ChevronLeft } from "lucide-react";
 

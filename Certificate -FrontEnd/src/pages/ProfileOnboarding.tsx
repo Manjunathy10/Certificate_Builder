@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import useAuthStore from "@/auth/store";
-import apiClient from "@/config/ApiClient";
+import apiClient from "@/config/apiClient";
 import toast from "react-hot-toast";
 
 interface FormData {

@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
-import { BrowserRouter, Routes, Route } from "react-router";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login.tsx";
 import About from "./pages/About.tsx";
 import Services from "./pages/Services.tsx";
@@ -16,6 +16,9 @@ import ImportStudent from "./pages/ImportStudent.tsx";
 import StudentList from "./pages/StudentList";
 import EditStudent from "./pages/EditStudent";
 import ProfileOnboarding from "./pages/ProfileOnboarding.tsx";
+import CertificateBuilder from "./pages/certificates/CertificateBuilder.jsx";
+import CertificateTemplateList from "./pages/certificates/CertificateTemplateList.jsx";
+import CertificateVerify from "./pages/certificates/CertificateVerify.jsx";
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
@@ -26,6 +29,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="signup" element={<Signup />} />
         <Route path="services" element={<Services />} />
         <Route path="about" element={<About />} />
+        <Route path="verify/:certificateNumber" element={<CertificateVerify />} />
         <Route path="oauth/success" element={<OAuthSuccess />} />
         <Route path="oauth/failure" element={<OAuthSuccess />} />
       </Route>
@@ -41,6 +45,11 @@ createRoot(document.getElementById("root")!).render(
     <Route path="list" element={<StudentList />} />
     <Route path="edit/:id" element={<EditStudent />} />
   </Route>
+
+  {/* Certificates */}
+  <Route path="certificates" element={<CertificateTemplateList />} />
+  <Route path="certificates/builder" element={<CertificateBuilder />} />
+  <Route path="certificates/builder/:id" element={<CertificateBuilder />} />
       </Route>
     </Routes>
   </BrowserRouter>

@@ -12,10 +12,25 @@ const apiClient = axios.create({
   timeout: 10000,
 });
 
+function getTokenFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem("app_state");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const persistedToken = parsed?.state?.accessToken;
+    return typeof persistedToken === "string" && persistedToken.trim()
+      ? persistedToken
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 //every request: before
 apiClient.interceptors.request.use((config) => {
-  const accessToken = useAuth.getState().accessToken;
+  const accessToken = useAuth.getState().accessToken || getTokenFromLocalStorage();
   if (accessToken) {
+    config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
 
@@ -38,16 +53,16 @@ function resolveQueue(newToken: string) {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const is401 = error.response.status === 401;
+    const is401 = error?.response?.status === 401;
     const original = error.config;
     console.log(original);
     console.log("original retry: ", original._retry);
-    if (!is401 || original._retry) {
+    if (!is401 || !original || original._retry) {
       //message:
 
-      if (error.response && error.response.data)
+      if (error?.response?.data)
         toast.error(error.response.data?.message || "An error occurred");
-      console.error("API Error:", error.response.data);
+      console.error("API Error:", error?.response?.data);
       console.error("Full error:", error);
 
       return Promise.reject(error);
@@ -60,6 +75,7 @@ apiClient.interceptors.response.use(
       return new Promise((resolve, reject) => {
         queueRequest((newToken: string) => {
           if (!newToken) return reject();
+          original.headers = original.headers || {};
           original.headers.Authorization = `Bearer ${newToken}`;
           resolve(apiClient(original));
         });
@@ -83,6 +99,7 @@ apiClient.interceptors.response.use(
         );
       //
       resolveQueue(newToken);
+      original.headers = original.headers || {};
       original.headers.Authorization = `Bearer ${newToken}`;
       return apiClient(original);
     } catch (error) {

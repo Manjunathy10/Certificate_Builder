@@ -2,6 +2,8 @@ package com.substring.auth.app.auth.entities;
 
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -57,5 +59,6 @@ public class CertificateTemplateElement {
 
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "template_id")
+	@JsonIgnore
 	private CertificateTemplate template;
 }
