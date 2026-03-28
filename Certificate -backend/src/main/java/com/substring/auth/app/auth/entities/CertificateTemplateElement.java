@@ -3,6 +3,7 @@ package com.substring.auth.app.auth.entities;
 import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -27,38 +28,37 @@ import lombok.Setter;
 @Table(name = "certificate_template_elements")
 public class CertificateTemplateElement {
 
-	@Id
-	@GeneratedValue(strategy = GenerationType.UUID)
-	private UUID id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-	// element identifier
-	// student_name, course, qr_code etc
-	private String elementName;
+    private String elementName;
+    private String elementType;
+    
+    
+    private Integer zIndex;
 
-	// element type
-	// text | image | qr
-	private String elementType;
+    @JsonProperty("xPosition")
+    private Integer xPosition;
 
-	// element position
-	private Integer xPosition;
+    @JsonProperty("yPosition")
+    private Integer yPosition;
 
-	private Integer yPosition;
+    private Integer width;
+    private Integer height;
 
-	// element size
-	private Integer width;
+    private Integer fontSize;
+    private String textAlign;
 
-	private Integer height;
+    // 🔥 NEW FIELDS
+    private String fontFamily;
+    private String fontStyle; // normal, bold, italic
+    private String fontColor;
 
-	// text styling
-	private Integer fontSize;
+    private String staticValue;
 
-	private String textAlign;
-
-	// custom field value
-	private String staticValue;
-
-	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "template_id")
-	@JsonIgnore
-	private CertificateTemplate template;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "template_id")
+    @JsonIgnore
+    private CertificateTemplate template;
 }

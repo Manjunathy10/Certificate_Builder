@@ -5,13 +5,20 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.URL;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.UUID;
 
 import javax.imageio.ImageIO;
 
 import org.springframework.stereotype.Service;
 
+import com.itextpdf.io.font.PdfEncodings;
+import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.io.image.ImageDataFactory;
+import com.itextpdf.kernel.colors.Color;
+import com.itextpdf.kernel.colors.DeviceRgb;
+import com.itextpdf.kernel.font.PdfFont;
+import com.itextpdf.kernel.font.PdfFontFactory;
 import com.itextpdf.kernel.geom.PageSize;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
@@ -19,7 +26,6 @@ import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.Image;
 import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.properties.TextAlignment;
-import com.itextpdf.layout.properties.VerticalAlignment;
 
 import com.substring.auth.app.auth.entities.Certificate;
 import com.substring.auth.app.auth.entities.CertificateTemplate;
@@ -51,124 +57,148 @@ public class CertificateGeneratorServiceImpl {
                     .orElseThrow(() -> new RuntimeException("Template not found"));
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
+            PdfDocument pdf = new PdfDocument(new PdfWriter(out));
 
-            PdfWriter writer = new PdfWriter(out);
-            PdfDocument pdf = new PdfDocument(writer);
-
-            // ============================================
-            // ✅ DYNAMIC ORIENTATION
-            // ============================================
-            PageSize pageSize;
-
-            if ("LANDSCAPE".equalsIgnoreCase(template.getOrientation())) {
-                pageSize = PageSize.A4.rotate();
-            } else {
-                pageSize = PageSize.A4;
-            }
+            PageSize pageSize = "LANDSCAPE".equalsIgnoreCase(template.getOrientation())
+                    ? PageSize.A4.rotate()
+                    : PageSize.A4;
 
             Document document = new Document(pdf, pageSize);
-
-            // ============================================
-            // ✅ REMOVE DEFAULT MARGINS
-            // ============================================
             document.setMargins(0, 0, 0, 0);
 
-            // ============================================
-            // ✅ CERTIFICATE NUMBER
-            // ============================================
             String certNumber = "CERT-" + UUID.randomUUID().toString().substring(0, 8);
 
-            // ============================================
-            // ✅ BACKGROUND FULL COVER
-            // ============================================
+            // =========================
+            // BACKGROUND IMAGE
+            // =========================
             try {
                 URL url = new URL(template.getBackgroundImage());
                 InputStream is = url.openStream();
-
                 byte[] imageBytes = is.readAllBytes();
 
                 Image bg = new Image(ImageDataFactory.create(imageBytes));
-
                 bg.scaleAbsolute(pageSize.getWidth(), pageSize.getHeight());
                 bg.setFixedPosition(0, 0);
 
                 document.add(bg);
 
             } catch (Exception e) {
-                System.out.println("⚠ Background load failed");
+                System.out.println("Background load failed");
             }
 
-            // ============================================
-            // ✅ ELEMENTS RENDER
-            // ============================================
-            for (CertificateTemplateElement element : template.getElements()) {
+            // =========================
+            // SORT ELEMENTS
+            // =========================
+            template.getElements().stream()
+                    .sorted(Comparator.comparing(e -> e.getZIndex() == null ? 0 : e.getZIndex()))
+                    .forEach(element -> {
 
-                // ======================
-                // QR CODE
-                // ======================
-                if ("qr_code".equalsIgnoreCase(element.getElementName())) {
+                        try {
 
-                    String verifyUrl = "http://localhost:8083/api/v1/certificates/verify/" + certNumber;
+                            float pageWidth = pageSize.getWidth();
+                            float pageHeight = pageSize.getHeight();
 
-                    BufferedImage qr = QrCodeGenerator.generateQr(verifyUrl);
+                            float x = (element.getXPosition() / 100f) * pageWidth;
+                            float yTop = (element.getYPosition() / 100f) * pageHeight;
 
-                    ByteArrayOutputStream qrStream = new ByteArrayOutputStream();
-                    ImageIO.write(qr, "png", qrStream);
+                            float width = (element.getWidth() / 100f) * pageWidth;
+                            float height = (element.getHeight() / 100f) * pageHeight;
 
-                    Image qrImage = new Image(ImageDataFactory.create(qrStream.toByteArray()));
+                            float y = pageHeight - yTop;
 
-                    qrImage.scaleToFit(element.getWidth(), element.getHeight());
+                            // =========================
+                            // QR CODE
+                            // =========================
+                            if ("qr_code".equalsIgnoreCase(element.getElementName())) {
 
-                    qrImage.setFixedPosition(
-                            element.getXPosition(),
-                            element.getYPosition()
-                    );
+                                String verifyUrl = "http://localhost:8083/api/v1/certificates/verify/" + certNumber;
 
-                    document.add(qrImage);
-                    continue;
-                }
+                                BufferedImage qr = QrCodeGenerator.generateQr(verifyUrl);
 
-                // ======================
-                // TEXT ELEMENTS
-                // ======================
-                String value = getStudentValue(student, element.getElementName(), certNumber);
+                                ByteArrayOutputStream qrStream = new ByteArrayOutputStream();
+                                ImageIO.write(qr, "png", qrStream);
 
-                Paragraph text = new Paragraph(value)
-                        .setFontSize(element.getFontSize())
-                        .setBold(); // 🔥 better visibility
+                                Image qrImage = new Image(ImageDataFactory.create(qrStream.toByteArray()));
+                                qrImage.scaleToFit(width, height);
+                                qrImage.setFixedPosition(x, y - height);
 
-                // alignment
-                if ("center".equalsIgnoreCase(element.getTextAlign())) {
-                    text.setTextAlignment(TextAlignment.CENTER);
-                } else if ("right".equalsIgnoreCase(element.getTextAlign())) {
-                    text.setTextAlignment(TextAlignment.RIGHT);
-                } else {
-                    text.setTextAlignment(TextAlignment.LEFT);
-                }
+                                document.add(qrImage);
+                                return;
+                            }
 
-                // position
-                text.setFixedPosition(
-                        element.getXPosition(),
-                        element.getYPosition(),
-                        element.getWidth()
-                );
+                            // =========================
+                            // VALUE
+                            // =========================
+                            String value;
 
-                document.add(text);
-            }
+                            if ("static".equalsIgnoreCase(element.getElementType())) {
+                                value = element.getStaticValue();
+                            } else {
+                                value = getStudentValue(student, element.getElementName(), certNumber);
+                            }
+
+                            // =========================
+                            // FONT
+                            // =========================
+                            PdfFont font = loadFont(element.getFontFamily(), element.getFontStyle());
+                            float fontSize = element.getFontSize();
+
+                            // =========================
+                            // ALIGNMENT
+                            // =========================
+                            TextAlignment align = TextAlignment.CENTER;
+                            float textX = x + (width / 2);
+
+                            if ("left".equalsIgnoreCase(element.getTextAlign())) {
+                                align = TextAlignment.LEFT;
+                                textX = x;
+                            } else if ("right".equalsIgnoreCase(element.getTextAlign())) {
+                                align = TextAlignment.RIGHT;
+                                textX = x + width;
+                            }
+
+                            // =========================
+                            // 🔥 AUTO BASELINE ENGINE
+                            // =========================
+                            float ascent = font.getAscent("Hg", fontSize);
+                            float descent = font.getDescent("Hg", fontSize);
+
+                            float textHeight = ascent - descent;
+                            float baselineShift = (textHeight / 2) - ascent;
+
+                            float adjustedY = y - (height / 2) - baselineShift;
+
+                            // =========================
+                            // TEXT
+                            // =========================
+                            Paragraph text = new Paragraph(value)
+                                    .setFont(font)
+                                    .setFontSize(fontSize)
+                                    .setFontColor(getColor(element.getFontColor()))
+                                    .setTextAlignment(align)
+                                    .setWidth(width)
+                                    .setFixedLeading(fontSize);
+
+                            document.showTextAligned(text, textX, adjustedY, align);
+
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                    });
 
             document.close();
 
-            // ============================================
-            // ✅ SAVE CERTIFICATE
-            // ============================================
-            Certificate cert = Certificate.builder()
-                    .certificateNumber(certNumber)
-                    .studentId(studentId)
-                    .templateId(templateId)
-                    .issueDate(LocalDate.now())
-                    .build();
-
-            certificateRepository.save(cert);
+            // =========================
+            // SAVE
+            // =========================
+            certificateRepository.save(
+                    Certificate.builder()
+                            .certificateNumber(certNumber)
+                            .studentId(studentId)
+                            .templateId(templateId)
+                            .issueDate(LocalDate.now())
+                            .build()
+            );
 
             return out.toByteArray();
 
@@ -177,30 +207,69 @@ public class CertificateGeneratorServiceImpl {
         }
     }
 
-    // ============================================
-    // ✅ FIELD MAPPING
-    // ============================================
+    // =========================
+    // FONT LOADER
+    // =========================
+    private PdfFont loadFont(String family, String style) {
+
+        try {
+            if ("Poppins".equalsIgnoreCase(family)) {
+
+                String path = "/fonts/Poppins-Regular.ttf";
+
+                if ("bold".equalsIgnoreCase(style)) {
+                    path = "/fonts/Poppins-Bold.ttf";
+                } else if ("italic".equalsIgnoreCase(style)) {
+                    path = "/fonts/Poppins-Italic.ttf";
+                }
+
+                InputStream is = getClass().getResourceAsStream(path);
+
+                if (is == null) {
+                    throw new RuntimeException("Font not found: " + path);
+                }
+
+                return PdfFontFactory.createFont(is.readAllBytes(), PdfEncodings.IDENTITY_H);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        try {
+            return PdfFontFactory.createFont(StandardFonts.HELVETICA, PdfEncodings.WINANSI);
+        } catch (Exception e) {
+            throw new RuntimeException("Fallback font load failed");
+        }
+    }
+
+    // =========================
+    // COLOR
+    // =========================
+    private Color getColor(String hex) {
+
+        if (hex == null || hex.isEmpty()) return new DeviceRgb(0, 0, 0);
+
+        hex = hex.replace("#", "");
+
+        int r = Integer.parseInt(hex.substring(0, 2), 16);
+        int g = Integer.parseInt(hex.substring(2, 4), 16);
+        int b = Integer.parseInt(hex.substring(4, 6), 16);
+
+        return new DeviceRgb(r, g, b);
+    }
+
+    // =========================
+    // DATA
+    // =========================
     private String getStudentValue(Student student, String field, String certNumber) {
 
-        switch (field) {
-
-            case "student_name":
-                return student.getFullName();
-
-            case "course":
-                return student.getCourseName();
-
-            case "email":
-                return student.getEmail();
-
-            case "certificate_no":
-                return certNumber;
-
-            case "issue_date":
-                return LocalDate.now().toString();
-
-            default:
-                return "";
-        }
+        return switch (field) {
+            case "student_name" -> student.getFullName();
+            case "course_name" -> student.getCourseName();
+            case "certificate_no" -> certNumber;
+            case "issue_date" -> LocalDate.now().toString();
+            default -> "";
+        };
     }
 }

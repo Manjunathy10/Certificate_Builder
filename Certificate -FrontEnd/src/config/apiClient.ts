@@ -34,6 +34,11 @@ apiClient.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
 
+  if (config.data instanceof FormData) {
+    config.headers = config.headers || {};
+    delete config.headers["Content-Type"];
+  }
+
   return config;
 });
 

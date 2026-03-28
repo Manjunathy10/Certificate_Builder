@@ -1,15 +1,59 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { deleteTemplate, getAllTemplates } from "../../services/templateService";
+import { deleteTemplate, getAllTemplates, getCertificateStudents } from "../../services/templateService";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+
+function getTokenFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem("app_state");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const token = parsed?.state?.accessToken;
+    return typeof token === "string" && token.trim() ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+async function generateCertificate(student, template) {
+  const token = getTokenFromLocalStorage();
+  const url = `${API_BASE}/certificates/generate?studentId=${encodeURIComponent(student.id)}&templateId=${encodeURIComponent(template.id)}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to generate certificate");
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = `${String(student.fullName || "student").replace(/\s+/g, "_")}_Certificate.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
 
 export default function CertificateTemplateList() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [templates, setTemplates] = useState([]);
+  const [students, setStudents] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   const loadTemplates = async () => {
     setLoading(true);
@@ -29,6 +73,57 @@ export default function CertificateTemplateList() {
   useEffect(() => {
     loadTemplates();
   }, []);
+
+  useEffect(() => {
+    const loadStudents = async () => {
+      try {
+        const data = await getCertificateStudents();
+        setStudents(Array.isArray(data) ? data : []);
+      } catch {
+        setStudents([]);
+      }
+    };
+
+    loadStudents();
+  }, []);
+
+  const handleGenerateClick = async () => {
+    if (!selectedStudentId) {
+      toast.error("Please select a student");
+      return;
+    }
+
+    if (!selectedTemplateId) {
+      toast.error("Please select a template");
+      return;
+    }
+
+    const student = students.find((item) => String(item.id || item.studentId || item._id || "") === selectedStudentId);
+    const template = templates.find((item) => String(item.id || item._id || "") === selectedTemplateId);
+
+    if (!student || !template) {
+      toast.error("Invalid student or template selection");
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      await generateCertificate(
+        {
+          id: String(student.id || student.studentId || student._id || ""),
+          fullName: student.fullName || student.name || student.studentName || "student",
+        },
+        {
+          id: String(template.id || template._id || ""),
+        }
+      );
+      toast.success("Certificate downloaded");
+    } catch {
+      toast.error("Failed to generate certificate");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const confirmDelete = async () => {
     const id = deleteTarget;
@@ -109,6 +204,90 @@ export default function CertificateTemplateList() {
             </div>
           );
         })}
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Generate Certificate</h2>
+            <p className="text-sm text-slate-500">Select a student and a template, then download the certificate PDF.</p>
+          </div>
+
+          <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+            <select
+              value={selectedTemplateId}
+              onChange={(event) => setSelectedTemplateId(event.target.value)}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700"
+            >
+              <option value="">Select template</option>
+              {templates.map((template) => {
+                const templateId = String(template.id || template._id || "");
+                const templateName = template.templateName || template.name || "Untitled";
+                return (
+                  <option key={templateId} value={templateId}>
+                    {templateName}
+                  </option>
+                );
+              })}
+            </select>
+
+            <button
+              type="button"
+              onClick={handleGenerateClick}
+              disabled={isGenerating || !selectedStudentId || !selectedTemplateId}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isGenerating ? <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-emerald-200 border-t-white" /> : null}
+              {isGenerating ? "Generating..." : "Generate Certificate"}
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-md border border-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold text-slate-700">Select</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-700">Student Name</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-700">Enrollment</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-700">Course</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {students.length ? (
+                students.map((student) => {
+                  const studentId = String(student.id || student.studentId || student._id || "");
+                  const studentName = student.fullName || student.name || student.studentName || "N/A";
+                  const enrollmentNo = student.enrollmentNo || student.registrationNo || "-";
+                  const courseName = student.courseName || student.course || "-";
+
+                  return (
+                    <tr key={studentId} className="hover:bg-slate-50">
+                      <td className="px-3 py-2">
+                        <input
+                          type="radio"
+                          name="selectedStudent"
+                          value={studentId}
+                          checked={selectedStudentId === studentId}
+                          onChange={(event) => setSelectedStudentId(event.target.value)}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-slate-700">{studentName}</td>
+                      <td className="px-3 py-2 text-slate-600">{enrollmentNo}</td>
+                      <td className="px-3 py-2 text-slate-600">{courseName}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td className="px-3 py-4 text-center text-slate-500" colSpan={4}>
+                    No students available
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {deleteTarget ? (

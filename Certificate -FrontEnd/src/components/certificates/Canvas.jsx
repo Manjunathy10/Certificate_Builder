@@ -9,6 +9,11 @@ const CANVAS_SIZES = {
 const PREVIEW_VALUES = {
   student_name: "John Doe",
   course: "Full Stack Development",
+  grade: "A+",
+  certificate_no: "CERT-2026-001",
+  issue_date: "24 Mar 2026",
+  center_name: "Skyline Institute",
+  duration: "6 Months",
 };
 
 function toPixels(percent, size) {
@@ -25,6 +30,35 @@ function getPreviewText(value, previewMode) {
   return value.replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (_, token) => PREVIEW_VALUES[token] || `{{${token}}}`);
 }
 
+function toToken(value = "") {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function getElementText(element, previewMode) {
+  if (!element) return "";
+
+  if (element.elementType === "dynamic") {
+    const token = toToken(element.elementName);
+    return token ? `{{${token}}}` : "";
+  }
+
+  if (element.elementType === "static") {
+    return getPreviewText(element.staticValue ?? "", previewMode);
+  }
+
+  return getPreviewText(element.value ?? element.staticValue ?? "", previewMode);
+}
+
+function getJustifyContent(textAlign) {
+  if (textAlign === "left") return "flex-start";
+  if (textAlign === "right") return "flex-end";
+  return "center";
+}
+
 function Canvas({
   orientation,
   backgroundUrl,
@@ -32,6 +66,7 @@ function Canvas({
   selectedElement,
   onSelectElement,
   onElementsChange,
+  onElementChange,
   previewMode,
   templateStyle,
 }) {
@@ -44,6 +79,7 @@ function Canvas({
     onElementsChange((previous) =>
       (Array.isArray(previous) ? previous : []).map((item) => (item.id === id ? { ...item, ...patch } : item))
     );
+    onElementChange?.(id, patch);
   };
 
   return (
@@ -113,27 +149,69 @@ function Canvas({
                   y: toPercent(position.y, size.height),
                 });
               }}
-              style={{ zIndex: Math.max(1, element.zIndex || 1) }}
+              style={{
+                zIndex: Math.max(1, element.zIndex || 1),
+                background: "transparent",
+                outline: isSelected ? "2px solid #2563eb" : "none",
+                outlineOffset: 0,
+                border: "1px solid red",
+                overflow: "hidden",
+              }}
               className={[
-                "rounded border bg-white/70 backdrop-blur-sm transition-all duration-150",
+                "rounded border transition-all duration-150",
                 isSelected
-                  ? "border-blue-500 ring-2 ring-blue-300 shadow-[0_0_0_2px_rgba(59,130,246,0.18)]"
+                  ? "border-blue-500"
                   : "border-transparent hover:border-slate-300 hover:shadow-sm",
               ].join(" ")}
             >
               <div
-                className="flex h-full w-full items-center justify-center px-2"
+                className="flex h-full w-full"
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: getJustifyContent(element.textAlign || "center"),
+                  overflow: "hidden",
                   fontFamily: element.fontFamily || templateStyle.fontFamily,
                   fontSize: `${element.fontSize || templateStyle.fontSize}px`,
                   color: element.fontColor || templateStyle.fontColor,
                   fontWeight: element.bold ? 700 : templateStyle.bold ? 700 : 400,
                   fontStyle: element.italic ? "italic" : templateStyle.italic ? "italic" : "normal",
                   textAlign: element.textAlign || "center",
+                  margin: 0,
+                  padding: 0,
                 }}
               >
                 {element.elementType === "text" && (
-                  <span className="w-full break-words leading-tight">{getPreviewText(element.value, previewMode)}</span>
+                  <span
+                    className="w-full break-words leading-tight"
+                    style={{
+                      width: "100%",
+                      wordWrap: "break-word",
+                      whiteSpace: "pre-wrap",
+                      textAlign: element.textAlign || "center",
+                      lineHeight: 1.2,
+                      margin: 0,
+                      padding: 0,
+                    }}
+                  >
+                    {getElementText(element, previewMode)}
+                  </span>
+                )}
+                {(element.elementType === "static" || element.elementType === "dynamic") && (
+                  <span
+                    className="w-full break-words leading-tight"
+                    style={{
+                      width: "100%",
+                      wordWrap: "break-word",
+                      whiteSpace: "pre-wrap",
+                      textAlign: element.textAlign || "center",
+                      lineHeight: 1.2,
+                      margin: 0,
+                      padding: 0,
+                    }}
+                  >
+                    {getElementText(element, previewMode)}
+                  </span>
                 )}
                 {element.elementType === "image" && (
                   <div className="grid h-full w-full place-items-center rounded border border-dashed border-slate-400 text-xs text-slate-500">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import toast, { Toaster } from "react-hot-toast";
 import Toolbar from "../../components/certificates/Toolbar";
@@ -8,14 +8,18 @@ import {
   generateCertificatePdf,
   getCertificateStudents,
   getTemplateById,
-  updateTemplate,
-  uploadAsset,
+  patchTemplateElements,
 } from "../../services/templateService";
 
 const BACKEND_ORIGIN = "http://localhost:8083";
 const DEBUG_FALLBACK_BACKGROUND = "";
 
 const FONT_FAMILIES = ["Poppins", "Merriweather", "Lora", "Montserrat", "Roboto Slab", "Times New Roman"];
+
+const CANVAS_SIZES = {
+  portrait: { width: 600, height: 800 },
+  landscape: { width: 800, height: 600 },
+};
 
 const INITIAL_TEMPLATE = {
   templateName: "",
@@ -58,19 +62,37 @@ function fromSnakeCase(value = "") {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-function mapApiElement(element = {}, index = 0) {
+function createElementId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `el_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizePercent(value, size, fallback = 10) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  if (!size) return Math.max(0, Math.min(100, numeric));
+  if (numeric > 100) {
+    return Math.max(0, Math.min(100, (numeric / size) * 100));
+  }
+  return Math.max(0, Math.min(100, numeric));
+}
+
+function mapApiElement(element = {}, index = 0, canvasSize = CANVAS_SIZES.portrait) {
   const rawName = element.elementName || element.name || "text";
   return {
-    id: element.id || `el_${Date.now()}_${index}`,
+    id: element.id || createElementId(),
     elementName: fromSnakeCase(rawName),
     elementType: element.elementType || element.type || "text",
-    x: Number(element.x ?? element.xPosition ?? 10),
-    y: Number(element.y ?? element.yPosition ?? 10),
+    x: normalizePercent(element.x ?? element.xposition ?? element.xPosition, canvasSize.width, 10),
+    y: normalizePercent(element.y ?? element.yposition ?? element.yPosition, canvasSize.height, 10),
     width: Number(element.width ?? 20),
     height: Number(element.height ?? 8),
     fontSize: Number(element.fontSize ?? 24),
     textAlign: element.textAlign || "center",
     value: element.value ?? element.staticValue ?? "",
+    staticValue: element.staticValue ?? element.value ?? "",
     fontFamily: element.fontFamily,
     fontColor: element.fontColor,
     bold: Boolean(element.bold),
@@ -82,23 +104,21 @@ function mapApiElement(element = {}, index = 0) {
 function toSavePayload(templateData, elements) {
   return {
     templateName: templateData.templateName,
-    orientation: templateData.orientation,
-    backgroundImage: templateData.backgroundImage,
+    orientation: String(templateData.orientation || "LANDSCAPE").toUpperCase(),
     fontFamily: templateData.fontFamily,
     fontSize: Number(templateData.fontSize),
     fontColor: templateData.fontColor,
-    bold: templateData.bold,
-    italic: templateData.italic,
     elements: (Array.isArray(elements) ? elements : []).map((element) => ({
       elementName: toSnakeCase(element.elementName || "text"),
-      elementType: element.elementType,
-      xPosition: Number(element.x ?? 0),
-      yPosition: Number(element.y ?? 0),
+      xposition: Number(element.x ?? 0),
+      yposition: Number(element.y ?? 0),
       width: Number(element.width ?? 20),
       height: Number(element.height ?? 8),
       fontSize: Number(element.fontSize ?? templateData.fontSize ?? 24),
       textAlign: element.textAlign || "center",
-      staticValue: element.value || "",
+      fontFamily: element.fontFamily ?? "Poppins",
+      fontStyle: element.fontStyle ?? "normal",
+      fontColor: element.fontColor ?? "#000000",
     })),
   };
 }
@@ -118,6 +138,10 @@ function CertificateBuilder() {
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [backgroundUrl, setBackgroundUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const positionPatchTimeoutRef = useRef(null);
+  const pendingPositionIdsRef = useRef(new Set());
+  const latestElementsRef = useRef([]);
 
   const normalizeBackgroundUrl = (rawUrl) => {
     if (!rawUrl || typeof rawUrl !== "string") return "";
@@ -125,13 +149,76 @@ function CertificateBuilder() {
   };
 
   const isSaveDisabled = useMemo(() => {
-    return isSaving || !templateData.templateName.trim() || !Array.isArray(elements) || elements.length === 0;
-  }, [isSaving, templateData.templateName, elements]);
+    const missingRequiredData = !templateData.templateName.trim() || !Array.isArray(elements) || elements.length === 0;
+    if (id) return isSaving || missingRequiredData;
+    return isSaving || missingRequiredData || !selectedFile;
+  }, [isSaving, templateData.templateName, elements, selectedFile, id]);
 
   const maxZIndex = useMemo(() => {
     if (!elements.length) return 1;
     return Math.max(...elements.map((item) => item.zIndex || 1));
   }, [elements]);
+
+  const flushPositionPatch = useCallback(
+    async ({ showSuccess = false } = {}) => {
+      if (!id) return 0;
+
+      const pendingIds = Array.from(pendingPositionIdsRef.current);
+      if (!pendingIds.length) return 0;
+
+      const changed = pendingIds
+        .map((elementId) => latestElementsRef.current.find((item) => item.id === elementId))
+        .filter(Boolean)
+        .map((item) => ({
+          id: item.id,
+          xPosition: Number(item.x ?? 0),
+          yPosition: Number(item.y ?? 0),
+        }));
+
+      if (!changed.length) return 0;
+
+      pendingPositionIdsRef.current.clear();
+      await patchTemplateElements(id, changed);
+      setHasUnsavedChanges(false);
+      if (showSuccess) {
+        toast.success("Template updated");
+      }
+      return changed.length;
+    },
+    [id]
+  );
+
+  const queuePositionPatch = useCallback(
+    (elementId) => {
+      if (!id || !elementId) return;
+      pendingPositionIdsRef.current.add(elementId);
+
+      if (positionPatchTimeoutRef.current) {
+        window.clearTimeout(positionPatchTimeoutRef.current);
+      }
+
+      positionPatchTimeoutRef.current = window.setTimeout(async () => {
+        try {
+          await flushPositionPatch();
+        } catch {
+          // Keep UI responsive; failures are surfaced on explicit save.
+        }
+      }, 450);
+    },
+    [id, flushPositionPatch]
+  );
+
+  useEffect(() => {
+    latestElementsRef.current = Array.isArray(elements) ? elements : [];
+  }, [elements]);
+
+  useEffect(() => {
+    return () => {
+      if (positionPatchTimeoutRef.current) {
+        window.clearTimeout(positionPatchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -142,10 +229,12 @@ function CertificateBuilder() {
       try {
         const data = await getTemplateById(id);
         const loadedBackground = data.backgroundImage || data.backgroundUrl || "";
+        const loadedOrientation = String(data.orientation || "portrait").toLowerCase();
+        const canvasSize = CANVAS_SIZES[loadedOrientation] || CANVAS_SIZES.portrait;
         setTemplateData((previous) => ({
           ...previous,
           templateName: data.templateName || data.name || "",
-          orientation: data.orientation || "portrait",
+          orientation: loadedOrientation,
           backgroundImage: normalizeBackgroundUrl(loadedBackground),
           fontFamily: data.fontFamily || "Poppins",
           fontSize: Number(data.fontSize) || 24,
@@ -155,7 +244,7 @@ function CertificateBuilder() {
         }));
         setBackgroundUrl(normalizeBackgroundUrl(data.backgroundImage || data.backgroundUrl || ""));
         const loadedElements = Array.isArray(data?.elements)
-          ? data.elements.map((item, index) => mapApiElement(item, index))
+          ? data.elements.map((item, index) => mapApiElement(item, index, canvasSize))
           : [];
         setElements(loadedElements);
         setSelectedElement(null);
@@ -207,7 +296,7 @@ function CertificateBuilder() {
 
   const handleAddElement = ({ elementName, elementType }) => {
     const nextElement = {
-      id: `el_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      id: createElementId(),
       elementName,
       elementType,
       x: 10,
@@ -217,8 +306,10 @@ function CertificateBuilder() {
       fontSize: templateData.fontSize,
       textAlign: "center",
       value: PLACEHOLDER_MAP[elementName] || `{{${elementName.toLowerCase().replace(/\s+/g, "_")}}}`,
-      fontFamily: templateData.fontFamily,
-      fontColor: templateData.fontColor,
+      staticValue: "",
+      fontFamily: "Poppins",
+      fontStyle: "normal",
+      fontColor: "#000000",
       bold: templateData.bold,
       italic: templateData.italic,
       zIndex: maxZIndex + 1,
@@ -229,36 +320,20 @@ function CertificateBuilder() {
     setHasUnsavedChanges(true);
   };
 
-  const handleBackgroundUpload = async (event) => {
+  const handleBackgroundUpload = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    try {
-      const uploadResult = await uploadAsset(file);
-      const imageUrl = typeof uploadResult === "string" ? uploadResult : uploadResult?.url || "";
-      console.log("UPLOAD URL:", imageUrl);
-      const fullUrl = normalizeBackgroundUrl(imageUrl);
+    const localPreviewUrl = URL.createObjectURL(file);
+    setSelectedFile(file);
+    setBackgroundUrl(localPreviewUrl);
+    setTemplateData((previous) => ({ ...previous, backgroundImage: "" }));
 
-      if (!fullUrl) {
-        toast.error("Upload failed");
-        return;
-      }
-
-      setBackgroundUrl(fullUrl);
-      setTemplateData((previous) => ({ ...previous, backgroundImage: fullUrl }));
-
-      if (DEBUG_FALLBACK_BACKGROUND) {
-        // Fallback test:
-        // setBackgroundUrl("http://localhost:8083/uploads/sample.png");
-        setBackgroundUrl(DEBUG_FALLBACK_BACKGROUND);
-        setTemplateData((previous) => ({ ...previous, backgroundImage: DEBUG_FALLBACK_BACKGROUND }));
-      }
-
-      setHasUnsavedChanges(true);
-      toast.success("Background uploaded");
-    } catch {
-      toast.error("Upload failed");
+    if (DEBUG_FALLBACK_BACKGROUND) {
+      setBackgroundUrl(DEBUG_FALLBACK_BACKGROUND);
     }
+
+    setHasUnsavedChanges(true);
   };
 
   const handleSaveTemplate = async () => {
@@ -271,12 +346,26 @@ function CertificateBuilder() {
     setErrorMessage("");
     try {
       const payload = toSavePayload(templateData, elements);
+
       if (id) {
-        await updateTemplate(id, payload);
-        setHasUnsavedChanges(false);
-        toast.success("Template updated");
+        if (positionPatchTimeoutRef.current) {
+          window.clearTimeout(positionPatchTimeoutRef.current);
+        }
+        const patchedCount = await flushPositionPatch({ showSuccess: true });
+        if (!patchedCount) {
+          toast.success("No position changes to sync");
+        }
       } else {
-        const created = await createTemplate(payload);
+        if (!selectedFile) {
+          toast.error("Background image is required");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("data", JSON.stringify(payload));
+
+        const created = await createTemplate(formData);
         const createdId = created?.id || created?._id || created?.templateId;
         setHasUnsavedChanges(false);
         toast.success("Template saved");
@@ -330,6 +419,9 @@ function CertificateBuilder() {
     if (!selectedElement) return;
     setElements((previous) => previous.map((item) => (item.id === selectedElement.id ? { ...item, ...patch } : item)));
     setSelectedElement((previous) => (previous ? { ...previous, ...patch } : previous));
+    if (Object.prototype.hasOwnProperty.call(patch, "x") || Object.prototype.hasOwnProperty.call(patch, "y")) {
+      queuePositionPatch(selectedElement.id);
+    }
     setHasUnsavedChanges(true);
   };
 
@@ -344,7 +436,7 @@ function CertificateBuilder() {
     if (!selectedElement) return;
     const duplicate = {
       ...selectedElement,
-      id: `el_${Date.now()}_dup_${Math.random().toString(16).slice(2)}`,
+      id: createElementId(),
       x: Math.min(95, Number(selectedElement.x) + 2),
       y: Math.min(95, Number(selectedElement.y) + 2),
       zIndex: maxZIndex + 1,
@@ -363,6 +455,30 @@ function CertificateBuilder() {
     if (!selectedElement) return;
     updateSelectedElement({ zIndex: Math.max(1, (selectedElement.zIndex || 1) - 1) });
   };
+
+  const handleCanvasElementChange = useCallback(
+    (elementId, patch) => {
+      if (!patch || !elementId) return;
+      const hasPositionChange =
+        Object.prototype.hasOwnProperty.call(patch, "x") || Object.prototype.hasOwnProperty.call(patch, "y");
+
+      if (hasPositionChange) {
+        queuePositionPatch(elementId);
+      }
+      setHasUnsavedChanges(true);
+    },
+    [queuePositionPatch]
+  );
+
+  const handleCanvasElementsChange = useCallback((updater) => {
+    setElements((previous) => {
+      if (typeof updater === "function") {
+        return updater(previous);
+      }
+      return updater;
+    });
+    setHasUnsavedChanges(true);
+  }, []);
 
   if (isLoading) {
     return (
@@ -535,8 +651,8 @@ function CertificateBuilder() {
             <>
               <button type="button" onClick={duplicateSelected} className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">Duplicate</button>
               <button type="button" onClick={deleteSelected} className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700">Delete</button>
-              <button type="button" onClick={bringForward} className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">Bring Forward</button>
-              <button type="button" onClick={sendBackward} className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">Send Backward</button>
+              <button type="button" onClick={bringForward} className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">Bring To Front</button>
+              <button type="button" onClick={sendBackward} className="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">Send To Back</button>
             </>
           )}
         </div>
@@ -633,7 +749,8 @@ function CertificateBuilder() {
             elements={elements}
             selectedElement={selectedElement}
             onSelectElement={setSelectedElement}
-            onElementsChange={setElements}
+            onElementsChange={handleCanvasElementsChange}
+            onElementChange={handleCanvasElementChange}
             previewMode={isPreviewMode}
             templateStyle={{
               fontFamily: templateData.fontFamily,
