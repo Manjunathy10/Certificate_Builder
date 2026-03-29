@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 
 const CANVAS_SIZES = {
@@ -59,6 +59,10 @@ function getJustifyContent(textAlign) {
   return "center";
 }
 
+function isTextLikeElement(element) {
+  return element?.elementType === "text" || element?.elementType === "static" || element?.elementType === "dynamic";
+}
+
 function Canvas({
   orientation,
   backgroundUrl,
@@ -70,10 +74,59 @@ function Canvas({
   previewMode,
   templateStyle,
 }) {
-  console.log("Canvas received background:", backgroundUrl);
   const size = useMemo(() => CANVAS_SIZES[orientation] || CANVAS_SIZES.portrait, [orientation]);
+  const [stageRatio, setStageRatio] = useState(size.width / size.height);
+  const stageHostRef = useRef(null);
+  const [renderSize, setRenderSize] = useState(size);
   const safeElements = Array.isArray(elements) ? elements : [];
   const sortedElements = [...safeElements].sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
+
+  useEffect(() => {
+    setStageRatio(size.width / size.height);
+    setRenderSize(size);
+  }, [size]);
+
+  useEffect(() => {
+    if (!backgroundUrl) return;
+
+    let cancelled = false;
+    const image = new Image();
+    image.onload = () => {
+      if (cancelled) return;
+      if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+        setStageRatio(image.naturalWidth / image.naturalHeight);
+      }
+    };
+    image.src = backgroundUrl;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backgroundUrl]);
+
+  useEffect(() => {
+    const host = stageHostRef.current;
+    if (!host || typeof ResizeObserver === "undefined") return undefined;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+
+      const hostWidth = Math.max(320, Math.floor(entry.contentRect.width));
+      const nextWidth = hostWidth;
+      const nextHeight = Math.max(240, Math.floor(nextWidth / stageRatio));
+
+      setRenderSize((previous) => {
+        if (previous.width === nextWidth && previous.height === nextHeight) {
+          return previous;
+        }
+        return { width: nextWidth, height: nextHeight };
+      });
+    });
+
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [stageRatio]);
 
   const updateElement = (id, patch) => {
     onElementsChange((previous) =>
@@ -83,21 +136,20 @@ function Canvas({
   };
 
   return (
-    <div className="overflow-auto rounded-xl border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+    <div className="w-full overflow-auto rounded-xl border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 p-2 dark:border-slate-700 dark:bg-slate-900/40">
+      <div ref={stageHostRef} className="w-full">
       <div
-        className="relative mx-auto rounded-md bg-white shadow-2xl"
+        className="relative rounded-md bg-white shadow-2xl"
         style={{
           position: "relative",
-          width: size.width,
-          height: size.height,
+          width: renderSize.width,
+          height: renderSize.height,
         }}
       >
         {backgroundUrl && (
           <img
             src={backgroundUrl}
             alt="certificate background"
-            onLoad={() => console.log("Image loaded")}
-            onError={() => console.error("Image failed:", backgroundUrl)}
             style={{
               position: "absolute",
               top: 0,
@@ -117,11 +169,12 @@ function Canvas({
         )}
 
         {sortedElements.map((element) => {
-          const left = toPixels(element.x, size.width);
-          const top = toPixels(element.y, size.height);
-          const width = toPixels(element.width || 20, size.width);
-          const height = toPixels(element.height || 8, size.height);
+          const left = toPixels(element.x, renderSize.width);
+          const top = toPixels(element.y, renderSize.height);
+          const width = toPixels(element.width || 20, renderSize.width);
+          const height = toPixels(element.height || 8, renderSize.height);
           const isSelected = selectedElement?.id === element.id;
+          const textLike = isTextLikeElement(element);
 
           return (
             <Rnd
@@ -137,16 +190,16 @@ function Canvas({
               }}
               onDragStop={(_, data) => {
                 updateElement(element.id, {
-                  x: toPercent(data.x, size.width),
-                  y: toPercent(data.y, size.height),
+                  x: toPercent(data.x, renderSize.width),
+                  y: toPercent(data.y, renderSize.height),
                 });
               }}
               onResizeStop={(_, __, ref, ___, position) => {
                 updateElement(element.id, {
-                  width: toPercent(ref.offsetWidth, size.width),
-                  height: toPercent(ref.offsetHeight, size.height),
-                  x: toPercent(position.x, size.width),
-                  y: toPercent(position.y, size.height),
+                  width: toPercent(ref.offsetWidth, renderSize.width),
+                  height: toPercent(ref.offsetHeight, renderSize.height),
+                  x: toPercent(position.x, renderSize.width),
+                  y: toPercent(position.y, renderSize.height),
                 });
               }}
               style={{
@@ -154,7 +207,6 @@ function Canvas({
                 background: "transparent",
                 outline: isSelected ? "2px solid #2563eb" : "none",
                 outlineOffset: 0,
-                border: "1px solid red",
                 overflow: "hidden",
               }}
               className={[
@@ -168,7 +220,7 @@ function Canvas({
                 className="flex h-full w-full"
                 style={{
                   display: "flex",
-                  alignItems: "center",
+                  alignItems: textLike ? "flex-end" : "center",
                   justifyContent: getJustifyContent(element.textAlign || "center"),
                   overflow: "hidden",
                   fontFamily: element.fontFamily || templateStyle.fontFamily,
@@ -179,6 +231,7 @@ function Canvas({
                   textAlign: element.textAlign || "center",
                   margin: 0,
                   padding: 0,
+                  paddingBottom: textLike ? "2px" : 0,
                 }}
               >
                 {element.elementType === "text" && (
@@ -189,7 +242,7 @@ function Canvas({
                       wordWrap: "break-word",
                       whiteSpace: "pre-wrap",
                       textAlign: element.textAlign || "center",
-                      lineHeight: 1.2,
+                      lineHeight: 1,
                       margin: 0,
                       padding: 0,
                     }}
@@ -205,7 +258,7 @@ function Canvas({
                       wordWrap: "break-word",
                       whiteSpace: "pre-wrap",
                       textAlign: element.textAlign || "center",
-                      lineHeight: 1.2,
+                      lineHeight: 1,
                       margin: 0,
                       padding: 0,
                     }}
@@ -238,6 +291,7 @@ function Canvas({
         })}
 
         <button type="button" aria-label="clear selection" onClick={() => onSelectElement(null)} className="absolute inset-0 -z-10" />
+      </div>
       </div>
     </div>
   );
